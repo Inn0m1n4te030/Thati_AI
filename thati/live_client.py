@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from thati.audio import provider_audio_mime
 from thati.config import Settings
 from thati.errors import ProviderError, ProviderUnavailableError
 from thati.extract import detect_languages, extract_contact_entities
@@ -71,9 +72,19 @@ TRANSCRIPTION_VOCABULARY = [
 ]
 
 
-def audio_interaction_input(file_uri: str) -> list[dict[str, str]]:
+def audio_interaction_input(file_uri: str, mime_type: str | None = None) -> list[dict[str, str]]:
     """Gemini 3.5 Transcribe uses the Interactions API, not generate_content."""
-    return [{"type": "audio", "uri": file_uri}]
+    item = {"type": "audio", "uri": file_uri}
+    if mime_type:
+        item["mime_type"] = provider_audio_mime(mime_type)
+    return [item]
+
+
+TRANSCRIBE_ONLY_PROMPT = (
+    "Transcribe all spoken words exactly as heard. "
+    "Preserve Myanmar and English. Output only the transcript. "
+    "Do not analyze, summarize, or add commentary."
+)
 
 
 def live_transcription_config() -> dict[str, Any]:
@@ -270,25 +281,18 @@ class GeminiFraudClient:
     def transcribe_audio(self, audio_path: Path, mime_type: str) -> str:
         if self._files_upload is None or self._files_delete is None:
             raise ProviderUnavailableError()
-        if self._create_interaction is None:
-            raise ProviderUnavailableError()
         uploaded = None
+        provider_mime = provider_audio_mime(mime_type)
         try:
             uploaded = self._files_upload(
                 file=str(audio_path),
-                config={"mime_type": mime_type},
+                config={"mime_type": provider_mime},
             )
             uri = getattr(uploaded, "uri", None)
             if not uri:
                 raise ProviderError("provider_error")
-            interaction = self._create_interaction(
-                model=self.transcription_model,
-                input=audio_interaction_input(str(uri)),
-                generation_config=live_transcription_config(),
-            )
-            return _parse_transcript(interaction)
+            return self._transcribe_uploaded(str(uri), provider_mime)
         except ProviderError:
-            logger.warning("Live transcription returned no usable text")
             raise
         except ProviderUnavailableError:
             raise
@@ -301,6 +305,32 @@ class GeminiFraudClient:
                     self._files_delete(name=uploaded.name)
                 except Exception:
                     logger.exception("Failed to delete Gemini file %s", getattr(uploaded, "name", "?"))
+
+    def _transcribe_uploaded(self, uri: str, mime_type: str) -> str:
+        if self._create_interaction is not None:
+            try:
+                interaction = self._create_interaction(
+                    model=self.transcription_model,
+                    input=audio_interaction_input(uri, mime_type),
+                    generation_config=live_transcription_config(),
+                )
+                return _parse_transcript(interaction)
+            except ProviderError:
+                logger.warning("Interactions transcript empty; trying understanding model")
+            except Exception:
+                logger.exception("Interactions transcription failed; trying understanding model")
+        return self._transcribe_with_understanding_model(uri, mime_type)
+
+    def _transcribe_with_understanding_model(self, uri: str, mime_type: str) -> str:
+        response = self._generate_content(
+            model=self.model,
+            contents=[
+                {"file_data": {"file_uri": uri, "mime_type": mime_type}},
+                TRANSCRIBE_ONLY_PROMPT,
+            ],
+            config={"temperature": 0.1},
+        )
+        return _parse_transcript(response)
 
     def analyze_audio(self, audio_path: Path, mime_type: str) -> FraudAssessment:
         transcript = self.transcribe_audio(audio_path, mime_type)
