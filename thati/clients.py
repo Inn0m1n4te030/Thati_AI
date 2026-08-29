@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
 
 from thati.config import get_settings
@@ -13,6 +14,8 @@ _override: FraudClient | None = None
 
 class FraudClient(Protocol):
     def analyze_text(self, text: str) -> FraudAssessment: ...
+
+    def analyze_image(self, image_path: Path, mime_type: str) -> FraudAssessment: ...
 
 
 def set_fraud_client(client: FraudClient | None) -> None:

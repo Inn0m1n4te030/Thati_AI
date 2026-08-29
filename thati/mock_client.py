@@ -110,7 +110,20 @@ def _score_from_signals(
     return 8, "none", False
 
 
+SYNTHETIC_SCREENSHOT_TEXT = (
+    "KBZ ဘဏ်\n"
+    "အကောင့်ပိတ်ပါမည်။ OTP ပို့ပေးပါ။\n"
+    "09-123456789\n"
+    "https://kbz-secure-login.example/otp"
+)
+
+
 class MockFraudClient:
+    def analyze_image(self, image_path: object, mime_type: str) -> FraudAssessment:
+        """Deterministic screenshot result. Pixels are not interpreted in mock mode."""
+        del image_path, mime_type
+        return self.analyze_text(SYNTHETIC_SCREENSHOT_TEXT)
+
     def analyze_text(self, text: str) -> FraudAssessment:
         evidence: list[EvidenceItem] = []
         seen_quotes: set[str] = set()

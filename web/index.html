@@ -7,11 +7,54 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <main>
-      <h1>Thati AI</h1>
-      <p>သတိ — evidence-first Myanmar fraud screening.</p>
-      <p class="note">Scaffold only. Fraud analysis is not implemented yet.</p>
-      <p><a href="/health">/health</a></p>
+    <header class="topbar">
+      <div class="wordmark">သတိ</div>
+      <p class="trust">
+        ဤရလဒ်သည် စာသားပုံစံ စစ်ဆေးချက်သာ ဖြစ်သည်။ လူတစ်ဦးကို ပြစ်မှုကျူးလွန်သူဟု မသတ်မှတ်ပါ။
+      </p>
+      <a href="/admin">စစ်ဆေးရန်</a>
+    </header>
+    <main class="page studio">
+      <nav class="tabs" role="tablist" aria-label="စစ်ဆေးမည့် အမျိုးအစား">
+        <button type="button" class="tab is-active" role="tab" id="tab-text" aria-selected="true" data-panel="panel-text">
+          စာသား
+        </button>
+        <button type="button" class="tab" role="tab" id="tab-image" aria-selected="false" data-panel="panel-image">
+          မျက်နှာပြင်ပုံ
+        </button>
+        <button type="button" class="tab" role="tab" id="tab-voice" aria-selected="false" disabled title="မရရှိသေးပါ">
+          အသံ
+        </button>
+      </nav>
+
+      <section id="panel-text" class="card panel" role="tabpanel">
+        <label for="message">သံသယရှိသော စာ</label>
+        <textarea id="message" rows="6" placeholder="သံသယရှိသော စာကို ဤနေရာတွင် ကူးထည့်ပါ"></textarea>
+        <div class="actions">
+          <button type="button" class="btn-primary" id="analyze-text">စစ်ဆေးရန်</button>
+        </div>
+      </section>
+
+      <section id="panel-image" class="card panel is-hidden" role="tabpanel" hidden>
+        <p class="meta">PNG သို့မဟုတ် JPEG သာ။ အများဆုံး 10 MB။ မမြင်ရသော စာကို ခန့်မှန်းမည် မဟုတ်ပါ။</p>
+        <div id="dropzone" class="dropzone" tabindex="0">
+          <input id="image-input" type="file" accept="image/png,image/jpeg" hidden />
+          <p>နှိပ်၍ ရွေးပါ သို့မဟုတ် ဤနေရာသို့ ဆွဲထည့်ပါ</p>
+        </div>
+        <div id="image-preview-wrap" class="preview-wrap is-hidden">
+          <img id="image-preview" alt="ရွေးထားသော မျက်နှာပြင်ပုံ" />
+          <p id="image-meta" class="meta"></p>
+          <button type="button" class="btn-ghost" id="remove-image">ဖယ်ရှားရန်</button>
+        </div>
+        <p id="image-error" class="status idle" role="status"></p>
+        <div class="actions">
+          <button type="button" class="btn-primary" id="analyze-image" disabled>စစ်ဆေးရန်</button>
+        </div>
+      </section>
+
+      <p id="status" class="status idle" role="status"></p>
+      <section id="result" class="result" aria-live="polite"></section>
     </main>
+    <script src="/static/app.js"></script>
   </body>
 </html>

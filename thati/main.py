@@ -83,6 +83,11 @@ def health() -> dict[str, object]:
     }
 
 
+@app.get("/")
+def public_home() -> FileResponse:
+    return FileResponse(WEB_DIR / "index.html")
+
+
 @app.get("/admin")
 def admin() -> FileResponse:
     return FileResponse(WEB_DIR / "admin.html")

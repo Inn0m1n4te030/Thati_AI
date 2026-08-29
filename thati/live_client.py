@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from thati.config import Settings
 from thati.errors import ProviderError, ProviderUnavailableError
 from thati.extract import detect_languages, extract_contact_entities
-from thati.prompts import EVIDENCE_FIRST_SYSTEM_PROMPT, UNTRUSTED_MESSAGE_WRAPPER
+from thati.prompts import (
+    EVIDENCE_FIRST_SYSTEM_PROMPT,
+    IMAGE_SYSTEM_PROMPT,
+    IMAGE_USER_PROMPT,
+    UNTRUSTED_MESSAGE_WRAPPER,
+)
 from thati.schemas import ExtractedEntity, FraudAssessment, risk_level_for_score
 
 logger = logging.getLogger("thati.live")
@@ -28,6 +34,25 @@ def live_generate_config() -> dict[str, Any]:
         "response_schema": FraudAssessment,
         "temperature": 0.1,
     }
+
+
+def live_image_generate_config() -> dict[str, Any]:
+    config = live_generate_config()
+    config["system_instruction"] = IMAGE_SYSTEM_PROMPT
+    return config
+
+
+def image_generate_contents(file_uri: str, mime_type: str) -> list[dict[str, Any] | str]:
+    """Gemini Files API part: file_data.file_uri plus the image-understanding prompt."""
+    return [
+        {
+            "file_data": {
+                "file_uri": file_uri,
+                "mime_type": mime_type,
+            }
+        },
+        IMAGE_USER_PROMPT,
+    ]
 
 
 def _parse_provider_response(response: Any) -> FraudAssessment:
@@ -89,11 +114,20 @@ def sanitize_assessment(assessment: FraudAssessment, source_text: str) -> FraudA
 
 
 class GeminiFraudClient:
-    """Same analyze_text interface as MockFraudClient."""
+    """Same analyze_text interface as MockFraudClient; optional Files API for images."""
 
-    def __init__(self, *, model: str, generate_content: GenerateContent) -> None:
+    def __init__(
+        self,
+        *,
+        model: str,
+        generate_content: GenerateContent,
+        files_upload: Callable[..., Any] | None = None,
+        files_delete: Callable[..., Any] | None = None,
+    ) -> None:
         self.model = model
         self._generate_content = generate_content
+        self._files_upload = files_upload
+        self._files_delete = files_delete
 
     def analyze_text(self, text: str) -> FraudAssessment:
         try:
@@ -109,6 +143,39 @@ class GeminiFraudClient:
         except Exception as exc:
             logger.exception("Live text analysis failed")
             raise ProviderError("provider_error") from exc
+
+    def analyze_image(self, image_path: Path, mime_type: str) -> FraudAssessment:
+        if self._files_upload is None or self._files_delete is None:
+            raise ProviderUnavailableError()
+        uploaded = None
+        try:
+            uploaded = self._files_upload(
+                file=str(image_path),
+                config={"mime_type": mime_type},
+            )
+            uri = getattr(uploaded, "uri", None)
+            if not uri:
+                raise ProviderError("provider_error")
+            response = self._generate_content(
+                model=self.model,
+                contents=image_generate_contents(str(uri), mime_type),
+                config=live_image_generate_config(),
+            )
+            assessment = _parse_provider_response(response)
+            return sanitize_assessment(assessment, assessment.extracted_text)
+        except ProviderError:
+            raise
+        except ProviderUnavailableError:
+            raise
+        except Exception as exc:
+            logger.exception("Live image analysis failed")
+            raise ProviderError("provider_error") from exc
+        finally:
+            if uploaded is not None and self._files_delete is not None:
+                try:
+                    self._files_delete(name=uploaded.name)
+                except Exception:
+                    logger.exception("Failed to delete Gemini file %s", getattr(uploaded, "name", "?"))
 
 
 def build_live_client(
@@ -126,6 +193,14 @@ def build_live_client(
             http_options=types.HttpOptions(timeout=settings.gemini_timeout_ms),
         )
         generate_content = sdk.models.generate_content
+        files_upload = sdk.files.upload
+        files_delete = sdk.files.delete
+        return GeminiFraudClient(
+            model=settings.gemini_model,
+            generate_content=generate_content,
+            files_upload=files_upload,
+            files_delete=files_delete,
+        )
     return GeminiFraudClient(
         model=settings.gemini_model,
         generate_content=generate_content,
