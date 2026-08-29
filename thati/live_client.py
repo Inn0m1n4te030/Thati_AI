@@ -170,12 +170,16 @@ class GeminiFraudClient:
         files_upload: Callable[..., Any] | None = None,
         files_delete: Callable[..., Any] | None = None,
         transcription_model: str | None = None,
+        sdk: Any | None = None,
     ) -> None:
         self.model = model
         self.transcription_model = transcription_model or "gemini-3.5-transcribe"
         self._generate_content = generate_content
         self._files_upload = files_upload
         self._files_delete = files_delete
+        # google-genai Client.__del__ closes httpx even if Files/Models remain.
+        # Keep the SDK instance so uploads survive GC and FastAPI request scope.
+        self._sdk = sdk
 
     def analyze_text(self, text: str) -> FraudAssessment:
         try:
@@ -276,15 +280,13 @@ def build_live_client(
             api_key=settings.gemini_api_key,
             http_options=types.HttpOptions(timeout=settings.gemini_timeout_ms),
         )
-        generate_content = sdk.models.generate_content
-        files_upload = sdk.files.upload
-        files_delete = sdk.files.delete
         return GeminiFraudClient(
             model=settings.gemini_model,
             transcription_model=settings.transcription_model,
-            generate_content=generate_content,
-            files_upload=files_upload,
-            files_delete=files_delete,
+            generate_content=sdk.models.generate_content,
+            files_upload=sdk.files.upload,
+            files_delete=sdk.files.delete,
+            sdk=sdk,
         )
     return GeminiFraudClient(
         model=settings.gemini_model,
