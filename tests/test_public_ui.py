@@ -12,7 +12,8 @@ def test_public_page_has_spec_landmarks(client: TestClient) -> None:
     assert "သံသယရှိသော စာကို ကူးထည့်ပါ" in html
     assert 'id="analyze"' in html
     assert 'id="disclaimer"' in html
-    assert 'href="/admin"' in html
+    assert 'href="/admin"' not in html
+    assert "/admin" not in html
     assert 'id="blacklist-form"' in html
     assert 'id="report-form"' in html
     assert "innerHTML" not in html
@@ -34,6 +35,17 @@ def test_public_js_never_leaks_key_or_uses_innerhtml() -> None:
     assert "/api/reports" in script
     assert "/api/blacklist/check" in script
     assert "canShowScore" in script
+    assert "failWithoutInput" in script
+    assert "image_required" in script
+
+
+def test_public_page_does_not_advertise_admin(client: TestClient) -> None:
+    html = client.get("/").text
+    assert "/admin" not in html
+    admin = client.get("/admin")
+    assert admin.status_code == 200
+    assert 'href="/"' in admin.text
+    assert 'src="/static/admin.js"' in admin.text
 
 
 def test_public_text_analyze_report_and_blacklist(client: TestClient) -> None:

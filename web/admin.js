@@ -160,40 +160,52 @@ async function approveReport(report, entityBox, approveBtn, rejectBtn) {
   }
   approveBtn.disabled = true;
   rejectBtn.disabled = true;
-  const response = await fetch(`/api/admin/reports/${report.id}/approve`, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify({
-      entity_indexes: indexes,
-      reason: "human_reviewed",
-      risk_level: report.risk_level || "high",
-    }),
-  });
-  if (!response.ok) {
+  try {
+    const response = await fetch(`/api/admin/reports/${report.id}/approve`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        entity_indexes: indexes,
+        reason: "human_reviewed",
+        risk_level: report.risk_level || "high",
+      }),
+    });
+    if (!response.ok) {
+      approveBtn.disabled = false;
+      rejectBtn.disabled = false;
+      setStatus("bad", `အတည်ပြုမရပါ (${await readError(response)})`);
+      return;
+    }
+    setStatus("ok", "အတည်ပြုပြီး — ရွေးထားသော identifiers ကို လူက စာရင်းသွင်းပြီးပါပြီ။");
+    await loadQueue();
+  } catch (_err) {
     approveBtn.disabled = false;
     rejectBtn.disabled = false;
-    setStatus("bad", `အတည်ပြုမရပါ (${await readError(response)})`);
-    return;
+    setStatus("bad", "အတည်ပြုမရပါ (request_failed)");
   }
-  setStatus("ok", "အတည်ပြုပြီး — ရွေးထားသော identifiers ကို လူက စာရင်းသွင်းပြီးပါပြီ။");
-  await loadQueue();
 }
 
 async function rejectReport(report, approveBtn, rejectBtn) {
   approveBtn.disabled = true;
   rejectBtn.disabled = true;
-  const response = await fetch(`/api/admin/reports/${report.id}/reject`, {
-    method: "POST",
-    headers: headers(),
-  });
-  if (!response.ok) {
+  try {
+    const response = await fetch(`/api/admin/reports/${report.id}/reject`, {
+      method: "POST",
+      headers: headers(),
+    });
+    if (!response.ok) {
+      approveBtn.disabled = false;
+      rejectBtn.disabled = false;
+      setStatus("bad", `ငြင်းပယ်မရပါ (${await readError(response)})`);
+      return;
+    }
+    setStatus("ok", "ငြင်းပယ်ပြီး — blacklist မထည့်ပါ။");
+    await loadQueue();
+  } catch (_err) {
     approveBtn.disabled = false;
     rejectBtn.disabled = false;
-    setStatus("bad", `ငြင်းပယ်မရပါ (${await readError(response)})`);
-    return;
+    setStatus("bad", "ငြင်းပယ်မရပါ (request_failed)");
   }
-  setStatus("ok", "ငြင်းပယ်ပြီး — blacklist မထည့်ပါ။");
-  await loadQueue();
 }
 
 async function loadQueue() {
@@ -202,24 +214,33 @@ async function loadQueue() {
     return;
   }
   setStatus("idle", "ဖွင့်နေသည်…");
-  const response = await fetch("/api/admin/reports?status=pending", { headers: headers() });
-  if (!response.ok) {
-    setStatus("bad", `စာရင်းမရပါ (${await readError(response)})`);
-    return;
+  try {
+    const response = await fetch("/api/admin/reports?status=pending", { headers: headers() });
+    if (!response.ok) {
+      const code = await readError(response);
+      const copy =
+        code === "unauthorized"
+          ? "token မမှန်ပါ။"
+          : `စာရင်းမရပါ (${code})`;
+      setStatus("bad", copy);
+      return;
+    }
+    const payload = await response.json();
+    const queue = $("queue");
+    while (queue.firstChild) queue.removeChild(queue.firstChild);
+    const reports = payload.reports || [];
+    if (!reports.length) {
+      const empty = el("p", "empty");
+      setText(empty, "စောင့်ဆိုင်းနေသော အချက် မရှိပါ။");
+      queue.append(empty);
+      setStatus("ok", "စာရင်း ဗလာဖြစ်သည်။");
+      return;
+    }
+    reports.forEach((report) => queue.append(renderReport(report)));
+    setStatus("ok", `စောင့်ဆိုင်း ${reports.length} ခု (အဟောင်းဆုံး အရင်)။`);
+  } catch (_err) {
+    setStatus("bad", "စာရင်းမရပါ (request_failed)");
   }
-  const payload = await response.json();
-  const queue = $("queue");
-  while (queue.firstChild) queue.removeChild(queue.firstChild);
-  const reports = payload.reports || [];
-  if (!reports.length) {
-    const empty = el("p", "empty");
-    setText(empty, "စောင့်ဆိုင်းနေသော အချက် မရှိပါ။");
-    queue.append(empty);
-    setStatus("ok", "စာရင်း ဗလာဖြစ်သည်။");
-    return;
-  }
-  reports.forEach((report) => queue.append(renderReport(report)));
-  setStatus("ok", `စောင့်ဆိုင်း ${reports.length} ခု (အဟောင်းဆုံး အရင်)။`);
 }
 
 function init() {

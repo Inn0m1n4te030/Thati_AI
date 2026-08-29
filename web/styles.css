@@ -25,6 +25,35 @@ body {
   font-family: var(--font);
   font-size: 17px;
   line-height: 1.65;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: -3rem;
+  z-index: 20;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+}
+
+.skip-link:focus {
+  top: 0.75rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 a {
@@ -119,7 +148,8 @@ button,
 }
 
 .btn-primary:disabled,
-.btn-urgent:disabled {
+.btn-urgent:disabled,
+.btn-ghost:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -360,9 +390,10 @@ audio {
 
 .hero h1 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.25rem;
   font-weight: 700;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
 }
 
 body.public .studio {
@@ -371,6 +402,27 @@ body.public .studio {
   max-width: 72rem;
   margin: 0 auto;
   padding: 1rem 1.25rem 6.5rem;
+}
+
+body.public .studio > * {
+  min-width: 0;
+}
+
+.chip,
+.lime-chip,
+.quote,
+.meta,
+.trust,
+.disclaimer,
+.card p,
+.card h2,
+.card h3 {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chip {
+  max-width: 100%;
 }
 
 .dock {
@@ -487,8 +539,28 @@ select:focus-visible,
   body.public .dock {
     position: sticky;
     bottom: 0;
-    padding: 0.65rem 0 0.2rem;
-    background: linear-gradient(transparent, var(--paper) 30%);
+    z-index: 5;
+    padding: 0.65rem 0 0.35rem;
+    background: var(--paper);
+  }
+
+  .hero h1 {
+    font-size: 1.15rem;
+  }
+
+  .topbar,
+  .hero,
+  body.public .studio {
+    padding-left: 0.85rem;
+    padding-right: 0.85rem;
+  }
+
+  .tabs {
+    flex-wrap: wrap;
+  }
+
+  .tab {
+    flex: 1 1 auto;
   }
 }
 

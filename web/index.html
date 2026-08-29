@@ -8,16 +8,16 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body class="public">
+    <a class="skip-link" href="#message">စာထည့်ရန် ကျော်ရန်</a>
     <header class="topbar">
       <div class="brand">
         <p class="wordmark">သတိ</p>
         <p class="product-name">Thati AI</p>
-        <p id="mode-badge" class="mode-badge" aria-live="polite">mode</p>
+        <p id="mode-badge" class="mode-badge" aria-live="polite">mock</p>
       </div>
       <p class="trust">
         ဤရလဒ်သည် စာသားပုံစံ စစ်ဆေးချက်သာ ဖြစ်သည်။ လူတစ်ဦးကို ပြစ်မှုကျူးလွန်သူဟု မသတ်မှတ်ပါ။
       </p>
-      <a href="/admin">စစ်ဆေးရန် /admin</a>
     </header>
 
     <section class="hero">
@@ -45,11 +45,11 @@
         </div>
 
         <div id="panel-image" class="panel card is-hidden" role="tabpanel" aria-labelledby="tab-image" hidden>
-          <p class="meta">PNG သို့မဟုတ် JPEG သာ။ အများဆုံး 10 MB။ မမြင်ရသော စာကို ခန့်မှန်းမည် မဟုတ်ပါ။</p>
-          <div id="dropzone" class="dropzone" tabindex="0">
-            <input id="image-input" type="file" accept="image/png,image/jpeg" hidden />
-            <p>နှိပ်၍ ရွေးပါ သို့မဟုတ် ဤနေရာသို့ ဆွဲထည့်ပါ</p>
-          </div>
+          <p id="image-help" class="meta">PNG သို့မဟုတ် JPEG သာ။ အများဆုံး 10 MB။ မမြင်ရသော စာကို ခန့်မှန်းမည် မဟုတ်ပါ။</p>
+          <label class="dropzone" id="dropzone" for="image-input" tabindex="0">
+            <input id="image-input" class="sr-only" type="file" accept="image/png,image/jpeg" aria-describedby="image-help" />
+            <span>နှိပ်၍ ရွေးပါ သို့မဟုတ် ဤနေရာသို့ ဆွဲထည့်ပါ</span>
+          </label>
           <div id="image-preview-wrap" class="preview-wrap is-hidden">
             <img id="image-preview" alt="ရွေးထားသော မျက်နှာပြင်ပုံ" />
             <p id="image-meta" class="meta"></p>
@@ -59,16 +59,16 @@
         </div>
 
         <div id="panel-audio" class="panel card is-hidden" role="tabpanel" aria-labelledby="tab-voice" hidden>
-          <p class="meta">WAV, MP3, M4A, OGG, FLAC သို့မဟုတ် browser WebM။ အများဆုံး 25 MB။</p>
+          <p id="audio-help" class="meta">WAV, MP3, M4A, OGG, FLAC သို့မဟုတ် browser WebM။ အများဆုံး 25 MB။</p>
           <div id="recorder" class="recorder is-hidden">
-            <button type="button" class="btn-primary" id="record-start">အသံသွင်းရန်</button>
+            <button type="button" class="btn-primary" id="record-start" aria-describedby="mic-error">အသံသွင်းရန်</button>
             <button type="button" class="btn-urgent" id="record-stop" disabled>ရပ်ရန်</button>
             <p id="mic-error" class="status idle" role="status"></p>
           </div>
-          <div id="audio-dropzone" class="dropzone" tabindex="0">
-            <input id="audio-input" type="file" accept="audio/wav,audio/mpeg,audio/mp4,audio/ogg,audio/flac,audio/webm,video/webm,.wav,.mp3,.m4a,.ogg,.flac,.webm" hidden />
-            <p>အသံဖိုင် ရွေးပါ သို့မဟုတ် ဆွဲထည့်ပါ</p>
-          </div>
+          <label class="dropzone" id="audio-dropzone" for="audio-input" tabindex="0">
+            <input id="audio-input" class="sr-only" type="file" accept="audio/wav,audio/mpeg,audio/mp4,audio/ogg,audio/flac,audio/webm,video/webm,.wav,.mp3,.m4a,.ogg,.flac,.webm" aria-describedby="audio-help" />
+            <span>အသံဖိုင် ရွေးပါ သို့မဟုတ် ဆွဲထည့်ပါ</span>
+          </label>
           <div id="audio-preview-wrap" class="preview-wrap is-hidden">
             <audio id="audio-playback" controls></audio>
             <p id="audio-meta" class="meta"></p>
@@ -78,7 +78,7 @@
         </div>
 
         <div class="dock">
-          <button type="button" class="btn-primary" id="analyze" disabled>စစ်ဆေးရန်</button>
+          <button type="button" class="btn-primary" id="analyze" disabled aria-describedby="status">စစ်ဆေးရန်</button>
           <button type="button" class="btn-ghost" id="cancel-analyze" hidden>ပယ်ဖျက်</button>
         </div>
       </section>
@@ -88,7 +88,7 @@
           ဤကိရိယာသည် စစ်ဆေးချက် (screening) သာ ဖြစ်သည်။ ပြစ်မှုကျူးလွန်ကြောင်း အချက်အလက် ဆုံးဖြတ်ချက် မဟုတ်ပါ။
         </p>
         <p id="status" class="status idle" role="status" aria-live="polite"></p>
-        <div id="result" class="result" aria-live="polite"></div>
+        <div id="result" class="result" aria-live="polite" aria-atomic="true"></div>
 
         <form id="report-form" class="card report-form is-hidden">
           <h2>သတင်းပို့ရန်</h2>
@@ -120,7 +120,7 @@
           </select>
           <label for="check-value">တန်ဖိုး (ဤစာတွင် ပေါ်သည့်အတိုင်း)</label>
           <input id="check-value" type="text" autocomplete="off" />
-          <button type="submit" class="btn-ghost">စစ်ရန်</button>
+          <button type="submit" class="btn-ghost" id="check-submit">စစ်ရန်</button>
           <p id="check-result" class="status idle" role="status"></p>
         </form>
       </section>

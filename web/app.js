@@ -35,10 +35,17 @@ const ERROR_COPY = {
   provider_error: "စစ်ဆေးမှု မပြီးပါ။ ပြန်ကြိုးစားပါ။",
   provider_unavailable: "စစ်ဆေးမှု ယခု မရနိုင်ပါ။",
   invalid_request: "ပေးပို့ချက် မမှန်ပါ။",
+  image_required: "စစ်ဆေးရန် PNG သို့မဟုတ် JPEG ရွေးပါ။",
   image_too_large: "ပုံသည် 10 MB ထက် ကြီးနေသည်။",
   unsupported_image_type: "PNG သို့မဟုတ် JPEG သာ လက်ခံသည်။",
+  audio_required: "စစ်ဆေးရန် အသံဖိုင် ရွေးပါ။",
   audio_too_large: "အသံဖိုင်သည် 25 MB ထက် ကြီးနေသည်။",
   unsupported_audio_type: "ဤအသံအမျိုးအစားကို လက်မခံပါ။",
+  conversion_failed: "အသံဖိုင် ပြောင်းမရပါ။",
+  conversion_unavailable: "အသံပြောင်းရန် FFmpeg မရှိပါ။",
+  analysis_not_found: "စစ်ဆေးချက် မတွေ့ပါ။ ပြန်စစ်ဆေးပါ။",
+  unauthorized: "ခွင့်ပြုချက် မရှိပါ။",
+  internal_error: "အတွင်းပိုင်း အမှား ဖြစ်ပါသည်။",
   request_failed: "တောင်းဆိုမှု မအောင်မြင်ပါ။",
   value_required: "တန်ဖိုး ထည့်ပါ။",
 };
@@ -93,6 +100,12 @@ let inFlight = null;
 
 function currentModePanel() {
   return currentPanel;
+}
+
+function failWithoutInput(code, inlineSetter) {
+  setStatus("bad", errorCopy(code));
+  if (inlineSetter) inlineSetter(errorCopy(code));
+  renderError(code);
 }
 
 function analyzeEnabled() {
@@ -347,6 +360,11 @@ async function analyzeText() {
       return;
     }
     const payload = await response.json();
+    if (!payload || !payload.assessment) {
+      setStatus("bad", errorCopy("request_failed"));
+      renderError("request_failed");
+      return;
+    }
     renderResult(payload);
     setStatus("ok", "စာသား စစ်ဆေးပြီးပါပြီ။");
   } catch (err) {
@@ -370,6 +388,7 @@ function switchTab(panelId) {
     const on = tab.getAttribute("data-panel") === panelId;
     tab.classList.toggle("is-active", on);
     tab.setAttribute("aria-selected", on ? "true" : "false");
+    tab.tabIndex = on ? 0 : -1;
   });
   document.querySelectorAll(".panel").forEach((panel) => {
     const on = panel.id === panelId;
@@ -426,7 +445,7 @@ function acceptImageFile(file) {
 async function analyzeImage() {
   const error = validateImageFile(selectedFile);
   if (error) {
-    setImageError(errorCopy(error));
+    failWithoutInput(error, setImageError);
     return;
   }
   abortController = new AbortController();
@@ -449,6 +468,11 @@ async function analyzeImage() {
       return;
     }
     const payload = await response.json();
+    if (!payload || !payload.assessment) {
+      setStatus("bad", errorCopy("request_failed"));
+      renderError("request_failed");
+      return;
+    }
     renderResult(payload);
     setStatus("ok", "မျက်နှာပြင်ပုံ စစ်ဆေးပြီးပါပြီ။");
   } catch (err) {
@@ -469,7 +493,6 @@ async function analyzeImage() {
 function initImageUpload() {
   const zone = $("dropzone");
   const input = $("image-input");
-  zone.addEventListener("click", () => input.click());
   zone.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -617,7 +640,6 @@ function initRecorder() {
 function initAudioUpload() {
   const zone = $("audio-dropzone");
   const input = $("audio-input");
-  zone.addEventListener("click", () => input.click());
   zone.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -647,7 +669,7 @@ function initAudioUpload() {
 async function analyzeAudio() {
   const error = validateAudioFile(selectedAudio);
   if (error) {
-    setAudioError(errorCopy(error));
+    failWithoutInput(error, setAudioError);
     return;
   }
   abortController = new AbortController();
@@ -670,6 +692,11 @@ async function analyzeAudio() {
       return;
     }
     const payload = await response.json();
+    if (!payload || !payload.assessment) {
+      setStatus("bad", errorCopy("request_failed"));
+      renderError("request_failed");
+      return;
+    }
     renderResult(payload);
     setStatus("ok", "အသံ စစ်ဆေးပြီးပါပြီ။");
   } catch (err) {
@@ -693,8 +720,30 @@ function initAudio() {
 }
 
 function initTabs() {
-  document.querySelectorAll(".tab[data-panel]").forEach((tab) => {
-    tab.addEventListener("click", () => switchTab(tab.getAttribute("data-panel")));
+  const tabs = Array.from(document.querySelectorAll(".tab[data-panel]"));
+  tabs.forEach((tab, index) => {
+    tab.tabIndex = tab.classList.contains("is-active") ? 0 : -1;
+    tab.addEventListener("click", () => {
+      switchTab(tab.getAttribute("data-panel"));
+      tabs.forEach((item, i) => {
+        item.tabIndex = i === index ? 0 : -1;
+      });
+    });
+    tab.addEventListener("keydown", (event) => {
+      const current = tabs.indexOf(tab);
+      let next = current;
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (current + 1) % tabs.length;
+      else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (current - 1 + tabs.length) % tabs.length;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = tabs.length - 1;
+      else return;
+      event.preventDefault();
+      switchTab(tabs[next].getAttribute("data-panel"));
+      tabs.forEach((item, i) => {
+        item.tabIndex = i === next ? 0 : -1;
+      });
+      tabs[next].focus();
+    });
   });
 }
 
@@ -708,6 +757,8 @@ async function loadMode() {
     setText(badge, mode);
   } catch (_err) {
     setText($("mode-badge"), "mock");
+    $("mode-badge").classList.remove("is-live");
+    setStatus("bad", "mode မဖတ်နိုင်ပါ။ mock အဖြစ် ဆက်လုပ်ပါမည်။");
   }
 }
 
@@ -717,7 +768,14 @@ function initReport() {
   });
   $("report-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!currentAnalysisId || !$("report-confirm").checked) return;
+    if (!currentAnalysisId || !$("report-confirm").checked) {
+      $("report-status").className = "status bad";
+      setText(
+        $("report-status"),
+        currentAnalysisId ? "အတည်ပြု အကွက်ကို အရင် နှိပ်ပါ။" : errorCopy("analysis_not_found")
+      );
+      return;
+    }
     $("submit-report").disabled = true;
     try {
       const response = await fetch("/api/reports", {
