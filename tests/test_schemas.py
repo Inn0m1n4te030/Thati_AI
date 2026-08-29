@@ -93,8 +93,10 @@ def test_valid_assessment_and_analysis_response() -> None:
         known_blacklist_matches=[
             BlacklistMatch(
                 entity_type="phone",
-                exact_value="09-123456789",
-                normalized_value="09123456789",
+                masked_display_value="09****789",
+                matched=True,
+                risk_level="critical",
+                reports_count=1,
             )
         ],
     )

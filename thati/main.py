@@ -12,6 +12,7 @@ from thati.db import database_is_ready, ensure_database
 from thati.errors import ProviderError, ProviderUnavailableError
 from thati.rate_limit import analyze_limiter
 from thati.routers.analyze import router as analyze_router
+from thati.routers.review import admin_router, blacklist_router, reports_router
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 WEB_DIR = ROOT_DIR / "web"
@@ -30,6 +31,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Thati AI", version="0.1.0", lifespan=lifespan)
 app.include_router(analyze_router)
+app.include_router(reports_router)
+app.include_router(blacklist_router)
+app.include_router(admin_router)
 
 
 def _safe_error(status_code: int, code: str) -> JSONResponse:

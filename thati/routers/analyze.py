@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from thati.clients import FraudClient, get_fraud_client
 from thati.config import get_settings
+from thati.db import match_entities, persist_analysis
 from thati.errors import ProviderError, ProviderUnavailableError
 from thati.rate_limit import analyze_limiter
-from thati.schemas import AnalysisResponse, TextAnalyzeRequest
+from thati.schemas import AnalysisResponse, BlacklistMatch, TextAnalyzeRequest
 
 router = APIRouter(prefix="/api/analyze", tags=["analyze"])
 
@@ -38,6 +39,13 @@ def analyze_text(
 
     try:
         assessment = fraud_client.analyze_text(text)
+        analysis_id = persist_analysis(
+            settings.sqlite_path,
+            source_type="text",
+            source_text=text,
+            assessment=assessment,
+        )
+        hits = match_entities(settings.sqlite_path, assessment.entities)
     except ProviderUnavailableError:
         raise HTTPException(
             status_code=503, detail={"error": "provider_unavailable"}
@@ -48,7 +56,8 @@ def analyze_text(
         raise HTTPException(status_code=500, detail={"error": "internal_error"}) from None
 
     return AnalysisResponse(
+        analysis_id=analysis_id,
         source_type="text",
         assessment=assessment,
-        known_blacklist_matches=[],
+        known_blacklist_matches=[BlacklistMatch.model_validate(hit) for hit in hits],
     )

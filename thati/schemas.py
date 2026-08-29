@@ -205,8 +205,10 @@ class FraudAssessment(BaseModel):
 
 class BlacklistMatch(BaseModel):
     entity_type: EntityType
-    exact_value: str = Field(..., min_length=1)
-    normalized_value: str = Field(..., min_length=1)
+    masked_display_value: str
+    matched: bool = True
+    risk_level: RiskLevel | None = None
+    reports_count: int = 1
 
 
 class TextAnalyzeRequest(BaseModel):

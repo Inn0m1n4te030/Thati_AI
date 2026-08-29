@@ -22,6 +22,7 @@ def _restore_limiter() -> None:
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("APP_MODE", "mock")
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "thati.db"))
+    monkeypatch.setenv("ADMIN_TOKEN", "test-admin-token")
     reset_settings()
     _restore_limiter()
     set_fraud_client(None)
