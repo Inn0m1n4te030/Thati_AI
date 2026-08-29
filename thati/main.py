@@ -83,9 +83,9 @@ def health() -> dict[str, object]:
     }
 
 
-@app.get("/")
-def index() -> FileResponse:
-    return FileResponse(WEB_DIR / "index.html")
+@app.get("/admin")
+def admin() -> FileResponse:
+    return FileResponse(WEB_DIR / "admin.html")
 
 
 if WEB_DIR.exists():

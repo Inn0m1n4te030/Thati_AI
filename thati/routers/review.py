@@ -81,7 +81,7 @@ def admin_approve_report(
     payload: ApproveReportRequest,
 ) -> dict[str, object]:
     try:
-        entry_ids = approve_report(
+        approve_report(
             get_settings().sqlite_path,
             report_id,
             entity_indexes=payload.entity_indexes,
@@ -94,7 +94,7 @@ def admin_approve_report(
         code = str(exc)
         status = 409 if code == "report_not_pending" else 422
         raise HTTPException(status_code=status, detail={"error": code}) from None
-    return {"status": "approved", "blacklist_entry_ids": entry_ids}
+    return {"status": "approved"}
 
 
 @admin_router.post("/reports/{report_id}/reject")

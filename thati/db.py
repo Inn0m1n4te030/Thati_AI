@@ -158,7 +158,7 @@ def list_reports(path: Path, *, status: str | None = None) -> list[dict[str, Any
         if status:
             rows = connection.execute(
                 """
-                SELECT reports.*, analyses.source_excerpt, analyses.result_json
+                SELECT reports.*, analyses.source_excerpt, analyses.result_json, analyses.source_type
                 FROM reports
                 JOIN analyses ON analyses.id = reports.analysis_id
                 WHERE reports.status = ?
@@ -169,7 +169,7 @@ def list_reports(path: Path, *, status: str | None = None) -> list[dict[str, Any
         else:
             rows = connection.execute(
                 """
-                SELECT reports.*, analyses.source_excerpt, analyses.result_json
+                SELECT reports.*, analyses.source_excerpt, analyses.result_json, analyses.source_type
                 FROM reports
                 JOIN analyses ON analyses.id = reports.analysis_id
                 ORDER BY reports.created_at ASC
@@ -180,23 +180,39 @@ def list_reports(path: Path, *, status: str | None = None) -> list[dict[str, Any
         connection.close()
 
 
+def _entity_is_eligible(item: dict[str, Any]) -> bool:
+    return bool(item.get("type") and str(item.get("exact_value") or "").strip())
+
+
 def _masked_entities(result_json: str) -> list[dict[str, Any]]:
     payload = json.loads(result_json)
     entities = []
     for index, item in enumerate(payload.get("entities", [])):
-        entity_type = item["type"]
-        exact = item["exact_value"]
+        entity_type = item.get("type")
+        exact = str(item.get("exact_value") or "")
+        eligible = _entity_is_eligible(item)
         entities.append(
             {
                 "index": index,
                 "entity_type": entity_type,
-                "masked_value": mask_identifier(entity_type, exact),
+                "masked_value": mask_identifier(entity_type, exact) if eligible else "",
+                "eligible": eligible,
             }
         )
     return entities
 
 
 def _report_payload(row: sqlite3.Row) -> dict[str, Any]:
+    payload = json.loads(row["result_json"])
+    evidence = []
+    for item in payload.get("evidence") or []:
+        evidence.append(
+            {
+                "quote": item.get("quote") or "",
+                "myanmar_explanation": item.get("myanmar_explanation") or "",
+                "severity": item.get("severity") or "",
+            }
+        )
     return {
         "id": row["id"],
         "analysis_id": row["analysis_id"],
@@ -204,7 +220,15 @@ def _report_payload(row: sqlite3.Row) -> dict[str, Any]:
         "status": row["status"],
         "created_at": row["created_at"],
         "reviewed_at": row["reviewed_at"],
+        "source_type": row["source_type"],
         "source_excerpt": row["source_excerpt"],
+        "risk_level": payload.get("risk_level"),
+        "risk_score": payload.get("risk_score"),
+        "scam_type": payload.get("scam_type"),
+        "myanmar_summary": payload.get("myanmar_summary") or "",
+        "english_summary": payload.get("english_summary") or "",
+        "uncertainty": payload.get("uncertainty") or "",
+        "evidence": evidence,
         "entities": _masked_entities(row["result_json"]),
     }
 
@@ -269,7 +293,11 @@ def approve_report(
     for index in indexes:
         if index < 0 or index >= len(entities):
             raise ValueError("invalid_entity_index")
-        selected.append(entities[index])
+        item = entities[index]
+        if _entity_is_eligible(item):
+            selected.append(item)
+    if not selected:
+        raise ValueError("no_eligible_entities")
 
     now = _now()
     entry_ids: list[str] = []
