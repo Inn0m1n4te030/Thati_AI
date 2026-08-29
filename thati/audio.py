@@ -158,6 +158,20 @@ def needs_wav_conversion(mime_type: str) -> bool:
     return _canonical_mime(mime_type) not in _NATIVE_PROVIDER_TYPES
 
 
+def provider_audio_mime(mime_type: str) -> str:
+    """Gemini Interactions accepts audio/m4a, not audio/mp4."""
+    mime = _canonical_mime(mime_type)
+    if mime == "audio/mp4":
+        return "audio/m4a"
+    return mime
+
+
+def prepare_provider_audio(path: Path, mime_type: str) -> tuple[Path, str]:
+    if not needs_wav_conversion(mime_type):
+        return path, provider_audio_mime(mime_type)
+    return convert_to_16khz_mono_wav(path), "audio/wav"
+
+
 def convert_to_16khz_mono_wav(source: Path) -> Path:
     if shutil.which("ffmpeg") is None:
         raise AudioValidationError("conversion_unavailable")
@@ -191,9 +205,3 @@ def convert_to_16khz_mono_wav(source: Path) -> Path:
         dest.unlink(missing_ok=True)
         raise AudioValidationError("conversion_failed") from exc
     return dest
-
-
-def prepare_provider_audio(path: Path, mime_type: str) -> tuple[Path, str]:
-    if not needs_wav_conversion(mime_type):
-        return path, mime_type
-    return convert_to_16khz_mono_wav(path), "audio/wav"

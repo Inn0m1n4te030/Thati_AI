@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from thati.audio import AUDIO_MAX_BYTES
+from thati.audio import AUDIO_MAX_BYTES, provider_audio_mime
 from thati.mock_client import SYNTHETIC_SCREENSHOT_TEXT, SYNTHETIC_VOICE_TRANSCRIPT
 from tests.test_analyze_image import PNG_BYTES
 from tests.test_analyze_text import OTP_PHISHING
@@ -29,6 +29,12 @@ def wav_bytes() -> bytes:
 
 
 WEBM_BYTES = b"\x1a\x45\xdf\xa3" + b"\x00" * 32
+
+
+def test_provider_maps_mp4_audio_to_m4a() -> None:
+    assert provider_audio_mime("audio/mp4") == "audio/m4a"
+    assert provider_audio_mime("audio/m4a") == "audio/m4a"
+    assert provider_audio_mime("audio/wav") == "audio/wav"
 
 
 def test_public_page_enables_audio_tab(client: TestClient) -> None:

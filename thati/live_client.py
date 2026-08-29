@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from thati.audio import provider_audio_mime
 from thati.config import Settings
 from thati.errors import ProviderError, ProviderUnavailableError
 from thati.extract import detect_languages, extract_contact_entities
@@ -59,9 +63,11 @@ TRANSCRIPTION_LANGUAGE_CODES = ["my-MM", "en-US"]
 TRANSCRIPTION_VOCABULARY = [
     "KBZPay",
     "KBZ Pay",
+    "AYA",
     "Wave Money",
     "OTP",
     "PIN",
+    "CVV",
     "account",
     "transfer",
     "အကောင့်",
@@ -69,36 +75,86 @@ TRANSCRIPTION_VOCABULARY = [
 ]
 
 
-def audio_generate_contents(file_uri: str, mime_type: str) -> list[dict[str, Any]]:
+def audio_inline_input(data: bytes, mime_type: str) -> list[dict[str, str]]:
+    """Inline audio for Gemini 3.5 Transcribe (Interactions API)."""
     return [
         {
-            "file_data": {
-                "file_uri": file_uri,
-                "mime_type": mime_type,
-            }
+            "type": "audio",
+            "mime_type": provider_audio_mime(mime_type),
+            "data": base64.b64encode(data).decode("ascii"),
         }
     ]
 
 
+def audio_interaction_input(file_uri: str, mime_type: str | None = None) -> list[dict[str, str]]:
+    """Files-API URI form. Prefer audio_inline_input for live audio."""
+    item = {"type": "audio", "uri": file_uri}
+    if mime_type:
+        item["mime_type"] = provider_audio_mime(mime_type)
+    return [item]
+
+
+TRANSCRIBE_ONLY_PROMPT = (
+    "ဤအသံသည် မြန်မာဘာသာ (Burmese) ဖြစ်နိုင်ပြီး အင်္ဂလိပ် စကားလုံးများ ရောနေနိုင်သည်။ "
+    "ကြားသည့်အတိုင်း စာသားမှတ်တမ်းသာ ရေးပါ။ မြန်မာစာကို မြန်မာစာဖြင့် ထားပါ။ "
+    "ဘာသာပြန်ခြင်း၊ အကျဉ်းချုပ်ခြင်း သို့မဟုတ် စစ်ဆေးခြင်း မလုပ်ပါနှင့်။"
+)
+
+
 def live_transcription_config() -> dict[str, Any]:
     return {
-        "audio_transcription_config": {
+        "transcription_config": {
             "language_codes": list(TRANSCRIPTION_LANGUAGE_CODES),
-            "language_hints": {"language_codes": list(TRANSCRIPTION_LANGUAGE_CODES)},
-            "mode": "SMART",
+            "mode": {"type": "smart"},
             "custom_vocabulary": list(TRANSCRIPTION_VOCABULARY),
         }
     }
 
 
 def _parse_transcript(response: Any) -> str:
-    text = getattr(response, "text", None)
-    if isinstance(text, str) and text.strip():
-        return text.strip()
+    for attr in ("output_text", "text"):
+        text = getattr(response, attr, None)
+        if isinstance(text, str) and text.strip():
+            return text.strip()
     parsed = getattr(response, "parsed", None)
     if isinstance(parsed, str) and parsed.strip():
         return parsed.strip()
+    parts: list[str] = []
+    for step in getattr(response, "steps", None) or []:
+        for content in getattr(step, "content", None) or []:
+            text = getattr(content, "text", None)
+            if text is None and isinstance(content, dict):
+                text = content.get("text")
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+    if parts:
+        return "\n".join(parts)
     raise ProviderError("empty_transcript")
+
+
+def _json_object(text: str) -> dict[str, Any]:
+    raw = text.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ProviderError("empty_provider_response")
+    return payload
+
+
+def _coerce_provider_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Trust the numeric screening score when the model mislabels risk_level."""
+    data = dict(payload)
+    score = data.get("risk_score")
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        return data
+    data["risk_level"] = risk_level_for_score(int(score))
+    return data
+
+
+def _assessment_from_provider_payload(payload: dict[str, Any]) -> FraudAssessment:
+    return FraudAssessment.model_validate(_coerce_provider_payload(payload))
 
 
 def _parse_provider_response(response: Any) -> FraudAssessment:
@@ -106,10 +162,15 @@ def _parse_provider_response(response: Any) -> FraudAssessment:
     if isinstance(parsed, FraudAssessment):
         return parsed
     if isinstance(parsed, dict):
-        return FraudAssessment.model_validate(parsed)
+        return _assessment_from_provider_payload(parsed)
     text = getattr(response, "text", None)
     if isinstance(text, str) and text.strip():
-        return FraudAssessment.model_validate_json(text)
+        try:
+            return _assessment_from_provider_payload(_json_object(text))
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError("empty_provider_response") from exc
     raise ProviderError("empty_provider_response")
 
 
@@ -170,12 +231,18 @@ class GeminiFraudClient:
         files_upload: Callable[..., Any] | None = None,
         files_delete: Callable[..., Any] | None = None,
         transcription_model: str | None = None,
+        sdk: Any | None = None,
+        create_interaction: Callable[..., Any] | None = None,
     ) -> None:
         self.model = model
         self.transcription_model = transcription_model or "gemini-3.5-transcribe"
         self._generate_content = generate_content
         self._files_upload = files_upload
         self._files_delete = files_delete
+        self._create_interaction = create_interaction
+        # google-genai Client.__del__ closes httpx even if Files/Models remain.
+        # Keep the SDK instance so uploads survive GC and FastAPI request scope.
+        self._sdk = sdk
 
     def analyze_text(self, text: str) -> FraudAssessment:
         try:
@@ -226,23 +293,12 @@ class GeminiFraudClient:
                     logger.exception("Failed to delete Gemini file %s", getattr(uploaded, "name", "?"))
 
     def transcribe_audio(self, audio_path: Path, mime_type: str) -> str:
-        if self._files_upload is None or self._files_delete is None:
-            raise ProviderUnavailableError()
-        uploaded = None
+        data = Path(audio_path).read_bytes()
+        if not data:
+            raise ProviderError("empty_transcript")
+        provider_mime = provider_audio_mime(mime_type)
         try:
-            uploaded = self._files_upload(
-                file=str(audio_path),
-                config={"mime_type": mime_type},
-            )
-            uri = getattr(uploaded, "uri", None)
-            if not uri:
-                raise ProviderError("provider_error")
-            response = self._generate_content(
-                model=self.transcription_model,
-                contents=audio_generate_contents(str(uri), mime_type),
-                config=live_transcription_config(),
-            )
-            return _parse_transcript(response)
+            return self._transcribe_bytes(data, provider_mime)
         except ProviderError:
             raise
         except ProviderUnavailableError:
@@ -250,12 +306,49 @@ class GeminiFraudClient:
         except Exception as exc:
             logger.exception("Live transcription failed")
             raise ProviderError("provider_error") from exc
-        finally:
-            if uploaded is not None and self._files_delete is not None:
-                try:
-                    self._files_delete(name=uploaded.name)
-                except Exception:
-                    logger.exception("Failed to delete Gemini file %s", getattr(uploaded, "name", "?"))
+
+    def _transcribe_bytes(self, data: bytes, mime_type: str) -> str:
+        if self._create_interaction is not None:
+            try:
+                interaction = self._create_interaction(
+                    model=self.transcription_model,
+                    input=audio_inline_input(data, mime_type),
+                    generation_config=live_transcription_config(),
+                )
+                return _parse_transcript(interaction)
+            except ProviderError:
+                logger.warning("Interactions transcript empty; trying understanding model")
+            except Exception:
+                logger.exception("Interactions transcription failed; trying understanding model")
+        return self._transcribe_with_understanding_model(data, mime_type)
+
+    def _transcribe_with_understanding_model(self, data: bytes, mime_type: str) -> str:
+        if self._sdk is not None:
+            from google.genai import types
+
+            response = self._sdk.models.generate_content(
+                model=self.model,
+                contents=[
+                    types.Part.from_bytes(data=data, mime_type=mime_type),
+                    TRANSCRIBE_ONLY_PROMPT,
+                ],
+                config={"temperature": 0.1},
+            )
+            return _parse_transcript(response)
+        response = self._generate_content(
+            model=self.model,
+            contents=[
+                {
+                    "inline_data": {
+                        "mime_type": mime_type,
+                        "data": base64.b64encode(data).decode("ascii"),
+                    }
+                },
+                TRANSCRIBE_ONLY_PROMPT,
+            ],
+            config={"temperature": 0.1},
+        )
+        return _parse_transcript(response)
 
     def analyze_audio(self, audio_path: Path, mime_type: str) -> FraudAssessment:
         transcript = self.transcribe_audio(audio_path, mime_type)
@@ -276,15 +369,15 @@ def build_live_client(
             api_key=settings.gemini_api_key,
             http_options=types.HttpOptions(timeout=settings.gemini_timeout_ms),
         )
-        generate_content = sdk.models.generate_content
-        files_upload = sdk.files.upload
-        files_delete = sdk.files.delete
+        create_interaction = getattr(getattr(sdk, "interactions", None), "create", None)
         return GeminiFraudClient(
             model=settings.gemini_model,
             transcription_model=settings.transcription_model,
-            generate_content=generate_content,
-            files_upload=files_upload,
-            files_delete=files_delete,
+            generate_content=sdk.models.generate_content,
+            files_upload=sdk.files.upload,
+            files_delete=sdk.files.delete,
+            create_interaction=create_interaction,
+            sdk=sdk,
         )
     return GeminiFraudClient(
         model=settings.gemini_model,
