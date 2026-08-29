@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -209,8 +209,12 @@ class BlacklistMatch(BaseModel):
     normalized_value: str = Field(..., min_length=1)
 
 
+class TextAnalyzeRequest(BaseModel):
+    text: str
+
+
 class AnalysisResponse(BaseModel):
-    analysis_id: UUID
+    analysis_id: UUID = Field(default_factory=uuid4)
     source_type: SourceType
     assessment: FraudAssessment
     known_blacklist_matches: list[BlacklistMatch] = Field(default_factory=list)

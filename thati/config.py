@@ -24,6 +24,12 @@ class Settings(BaseSettings):
         alias="TRANSCRIPTION_MODEL",
     )
     admin_token: str = Field(default="", alias="ADMIN_TOKEN")
+    analyze_max_chars: int = Field(default=8000, alias="ANALYZE_MAX_CHARS")
+    analyze_rate_limit: int = Field(default=30, alias="ANALYZE_RATE_LIMIT")
+    analyze_rate_window_seconds: float = Field(
+        default=60.0,
+        alias="ANALYZE_RATE_WINDOW_SECONDS",
+    )
 
 
 @lru_cache
