@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,6 +8,7 @@ from thati.clients import set_fraud_client
 from thati.config import reset_settings
 from thati.live_client import (
     GeminiFraudClient,
+    _parse_provider_response,
     image_generate_contents,
     live_image_generate_config,
 )
@@ -25,7 +27,52 @@ def _fake_response(text: str = SOURCE) -> SimpleNamespace:
     )
 
 
-def test_image_request_schema_uses_files_api_uri() -> None:
+def test_provider_json_with_mismatched_risk_level_is_coerced() -> None:
+    payload = _valid_assessment(extracted_text=SOURCE)
+    payload["risk_score"] = 88
+    payload["risk_level"] = "high"
+    response = SimpleNamespace(parsed=None, text=json.dumps(payload, ensure_ascii=False))
+    assessment = _parse_provider_response(response)
+    assert assessment.risk_score == 88
+    assert assessment.risk_level == "critical"
+
+
+def test_live_image_http_accepts_mismatched_provider_json(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setenv("APP_MODE", "live")
+    monkeypatch.setenv("GEMINI_API_KEY", "secret-should-not-leak")
+    reset_settings()
+    payload = _valid_assessment(extracted_text=SOURCE)
+    payload["risk_score"] = 88
+    payload["risk_level"] = "high"
+    deleted: list[str] = []
+
+    def fake_upload(*, file: str, config: dict[str, str] | None = None) -> SimpleNamespace:
+        return SimpleNamespace(name=FAKE_FILE_NAME, uri=FAKE_FILE_URI)
+
+    def fake_delete(*, name: str, config: object = None) -> None:
+        deleted.append(name)
+
+    def fake_generate(**_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(parsed=None, text=json.dumps(payload, ensure_ascii=False))
+
+    set_fraud_client(
+        GeminiFraudClient(
+            model="gemini-3.7-flash",
+            generate_content=fake_generate,
+            files_upload=fake_upload,
+            files_delete=fake_delete,
+        )
+    )
+    ok = client.post(
+        "/api/analyze/image",
+        files={"file": ("shot.png", PNG_BYTES, "image/png")},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["assessment"]["risk_score"] == 88
+    assert ok.json()["assessment"]["risk_level"] == "critical"
+    assert deleted == [FAKE_FILE_NAME]
     contents = image_generate_contents(FAKE_FILE_URI, "image/png")
     assert contents[0] == {
         "file_data": {

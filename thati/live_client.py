@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -105,15 +107,45 @@ def _parse_transcript(response: Any) -> str:
     raise ProviderError("empty_transcript")
 
 
+def _json_object(text: str) -> dict[str, Any]:
+    raw = text.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ProviderError("empty_provider_response")
+    return payload
+
+
+def _coerce_provider_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Trust the numeric screening score when the model mislabels risk_level."""
+    data = dict(payload)
+    score = data.get("risk_score")
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        return data
+    data["risk_level"] = risk_level_for_score(int(score))
+    return data
+
+
+def _assessment_from_provider_payload(payload: dict[str, Any]) -> FraudAssessment:
+    return FraudAssessment.model_validate(_coerce_provider_payload(payload))
+
+
 def _parse_provider_response(response: Any) -> FraudAssessment:
     parsed = getattr(response, "parsed", None)
     if isinstance(parsed, FraudAssessment):
         return parsed
     if isinstance(parsed, dict):
-        return FraudAssessment.model_validate(parsed)
+        return _assessment_from_provider_payload(parsed)
     text = getattr(response, "text", None)
     if isinstance(text, str) and text.strip():
-        return FraudAssessment.model_validate_json(text)
+        try:
+            return _assessment_from_provider_payload(_json_object(text))
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError("empty_provider_response") from exc
     raise ProviderError("empty_provider_response")
 
 
@@ -256,6 +288,7 @@ class GeminiFraudClient:
             )
             return _parse_transcript(interaction)
         except ProviderError:
+            logger.warning("Live transcription returned no usable text")
             raise
         except ProviderUnavailableError:
             raise
