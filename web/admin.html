@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="my">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Thati AI — စစ်ဆေးရန်</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#admin-token">token ထည့်ရန် ကျော်ရန်</a>
+    <header class="topbar">
+      <div class="wordmark">သတိ · စစ်ဆေးရန်</div>
+      <p class="trust">
+        လူက သုံးသပ်မှသာ စာရင်းသွင်းပါမည်။ AI ရလဒ်ကို အလိုအလျောက် blacklist မလုပ်ပါ။
+      </p>
+      <a href="/">ပင်မစာမျက်နှာ</a>
+    </header>
+    <main class="page">
+      <section class="card">
+        <label for="admin-token">Admin token (ဤ browser session သာ)</label>
+        <input id="admin-token" type="password" autocomplete="current-password" />
+        <div class="actions">
+          <button type="button" class="btn-primary" id="save-token">သိမ်းရန်</button>
+          <button type="button" class="btn-ghost" id="load-queue">စောင့်ဆိုင်းစာရင်း ဖွင့်ရန်</button>
+        </div>
+      </section>
+      <p id="status" class="status idle" role="status"></p>
+      <section id="queue" aria-live="polite"></section>
+    </main>
+    <script src="/static/admin.js"></script>
+  </body>
+</html>
