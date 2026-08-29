@@ -1,8 +1,9 @@
 services:
   thati:
     build: .
+    image: thati-ai:latest
     ports:
-      - "8000:8000"
+      - "80:8000"
     environment:
       APP_MODE: ${APP_MODE:-mock}
       SQLITE_PATH: /data/thati.db
@@ -11,8 +12,13 @@ services:
       GEMINI_TIMEOUT_MS: ${GEMINI_TIMEOUT_MS:-20000}
       TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-gemini-3.5-transcribe}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      ANALYZE_MAX_CHARS: ${ANALYZE_MAX_CHARS:-8000}
+      ANALYZE_RATE_LIMIT: ${ANALYZE_RATE_LIMIT:-30}
+      ANALYZE_RATE_WINDOW_SECONDS: ${ANALYZE_RATE_WINDOW_SECONDS:-60}
     volumes:
       - thati-data:/data
+    restart: unless-stopped
+    init: true
 
 volumes:
   thati-data:

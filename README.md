@@ -4,31 +4,73 @@ Evidence-first Myanmar fraud screening. Paste a message, get quoted evidence, id
 
 ## Stack
 
-- Python 3.12, FastAPI
-- SQLite (path via `SQLITE_PATH`)
+- Python 3.12, FastAPI, one Uvicorn worker (SQLite)
+- SQLite on a persistent volume at `/data/thati.db` in Docker
 - Plain HTML/CSS/JavaScript in `web/`
-- One Docker container
-- Mock screening by default; live text analysis via the Google Gen AI SDK (`google-genai`)
+- One Docker image (FastAPI, static frontend, FFmpeg), non-root
+- Mock screening by default; live analysis needs a server-side `GEMINI_API_KEY`
+
+Do not commit API keys, `.env`, SQLite files, uploads, or test caches. The Gemini key is never sent to the browser.
 
 ## Configuration
 
-Copy `.env.example` to `.env`. Defaults:
+Copy placeholders only:
 
-- `APP_MODE=mock` (use `live` only with a server-side `GEMINI_API_KEY`)
-- `SQLITE_PATH=data/thati.db` locally, `/data/thati.db` in Docker
-- `GEMINI_MODEL=gemini-3.7-flash`
-- `GEMINI_TIMEOUT_MS=20000`
-- `TRANSCRIPTION_MODEL=gemini-3.5-transcribe`
+```bash
+cp .env.example .env
+```
 
-Do not commit API keys. The key is never sent to the browser.
+Then edit `.env` on the server. Empty `GEMINI_API_KEY` and `ADMIN_TOKEN` in `.env.example` are placeholders — put real values only in `.env` (gitignored).
 
-## Run locally
+| Variable | Mock | Live |
+| --- | --- | --- |
+| `APP_MODE` | `mock` | `live` |
+| `GEMINI_API_KEY` | leave empty | server-side Gemini key |
+| `ADMIN_TOKEN` | long random token | same |
+| `SQLITE_PATH` | `/data/thati.db` in Docker | same |
+
+Local venv (not Docker) may use `SQLITE_PATH=data/thati.db`. Docker Compose always mounts SQLite at `/data/thati.db`.
+
+## Docker on an Azure Ubuntu VPS (port 80)
+
+Install Docker Engine and the Compose plugin, then from the repo directory:
+
+### Mock
+
+```bash
+cp .env.example .env
+# Set ADMIN_TOKEN in .env. Leave APP_MODE=mock and GEMINI_API_KEY empty.
+docker compose up --build -d
+curl -sS http://127.0.0.1/health
+```
+
+Public UI: `http://<server>/`  
+Admin (not linked from the public page): `http://<server>/admin`  
+Health: `http://<server>/health`
+
+### Live
+
+```bash
+cp .env.example .env
+# In .env set:
+#   APP_MODE=live
+#   GEMINI_API_KEY=<server-side key>
+#   ADMIN_TOKEN=<long random token>
+docker compose up --build -d
+curl -sS http://127.0.0.1/health
+```
+
+Compose maps host port **80** to the app on **8000**. SQLite is stored in the named volume `thati-data` at `/data`. Stop without deleting data: `docker compose down`. Wipe the database volume: `docker compose down -v`.
+
+## Local development (venv)
 
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
-./scripts/run_dev.sh
+cp .env.example .env
+# For local venv, set SQLITE_PATH=data/thati.db and APP_MODE=mock
+python3 -m uvicorn thati.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 - App: http://127.0.0.1:8000/
@@ -40,11 +82,3 @@ pip install -r requirements-dev.txt
 ```bash
 pytest -q
 ```
-
-## Docker
-
-```bash
-docker compose up --build
-```
-
-SQLite is stored at `/data/thati.db` inside the container.
