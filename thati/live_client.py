@@ -69,35 +69,39 @@ TRANSCRIPTION_VOCABULARY = [
 ]
 
 
-def audio_generate_contents(file_uri: str, mime_type: str) -> list[dict[str, Any]]:
-    return [
-        {
-            "file_data": {
-                "file_uri": file_uri,
-                "mime_type": mime_type,
-            }
-        }
-    ]
+def audio_interaction_input(file_uri: str) -> list[dict[str, str]]:
+    """Gemini 3.5 Transcribe uses the Interactions API, not generate_content."""
+    return [{"type": "audio", "uri": file_uri}]
 
 
 def live_transcription_config() -> dict[str, Any]:
     return {
-        "audio_transcription_config": {
+        "transcription_config": {
             "language_codes": list(TRANSCRIPTION_LANGUAGE_CODES),
-            "language_hints": {"language_codes": list(TRANSCRIPTION_LANGUAGE_CODES)},
-            "mode": "SMART",
+            "mode": {"type": "smart"},
             "custom_vocabulary": list(TRANSCRIPTION_VOCABULARY),
         }
     }
 
 
 def _parse_transcript(response: Any) -> str:
-    text = getattr(response, "text", None)
-    if isinstance(text, str) and text.strip():
-        return text.strip()
+    for attr in ("output_text", "text"):
+        text = getattr(response, attr, None)
+        if isinstance(text, str) and text.strip():
+            return text.strip()
     parsed = getattr(response, "parsed", None)
     if isinstance(parsed, str) and parsed.strip():
         return parsed.strip()
+    parts: list[str] = []
+    for step in getattr(response, "steps", None) or []:
+        for content in getattr(step, "content", None) or []:
+            text = getattr(content, "text", None)
+            if text is None and isinstance(content, dict):
+                text = content.get("text")
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+    if parts:
+        return "\n".join(parts)
     raise ProviderError("empty_transcript")
 
 
@@ -171,12 +175,14 @@ class GeminiFraudClient:
         files_delete: Callable[..., Any] | None = None,
         transcription_model: str | None = None,
         sdk: Any | None = None,
+        create_interaction: Callable[..., Any] | None = None,
     ) -> None:
         self.model = model
         self.transcription_model = transcription_model or "gemini-3.5-transcribe"
         self._generate_content = generate_content
         self._files_upload = files_upload
         self._files_delete = files_delete
+        self._create_interaction = create_interaction
         # google-genai Client.__del__ closes httpx even if Files/Models remain.
         # Keep the SDK instance so uploads survive GC and FastAPI request scope.
         self._sdk = sdk
@@ -232,6 +238,8 @@ class GeminiFraudClient:
     def transcribe_audio(self, audio_path: Path, mime_type: str) -> str:
         if self._files_upload is None or self._files_delete is None:
             raise ProviderUnavailableError()
+        if self._create_interaction is None:
+            raise ProviderUnavailableError()
         uploaded = None
         try:
             uploaded = self._files_upload(
@@ -241,12 +249,12 @@ class GeminiFraudClient:
             uri = getattr(uploaded, "uri", None)
             if not uri:
                 raise ProviderError("provider_error")
-            response = self._generate_content(
+            interaction = self._create_interaction(
                 model=self.transcription_model,
-                contents=audio_generate_contents(str(uri), mime_type),
-                config=live_transcription_config(),
+                input=audio_interaction_input(str(uri)),
+                generation_config=live_transcription_config(),
             )
-            return _parse_transcript(response)
+            return _parse_transcript(interaction)
         except ProviderError:
             raise
         except ProviderUnavailableError:
@@ -286,6 +294,7 @@ def build_live_client(
             generate_content=sdk.models.generate_content,
             files_upload=sdk.files.upload,
             files_delete=sdk.files.delete,
+            create_interaction=sdk.interactions.create,
             sdk=sdk,
         )
     return GeminiFraudClient(
