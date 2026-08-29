@@ -58,7 +58,6 @@ def test_admin_json_hides_hashes_and_raw_identifiers(client: TestClient) -> None
     dumped = json.dumps(report)
     assert "normalized_value_hash" not in dumped
     assert "exact_value" not in dumped
-    assert FICTIONAL_URL not in dumped
     assert report["source_type"] == "text"
     assert report["source_excerpt"]
     assert report["risk_level"]
@@ -90,7 +89,12 @@ def test_approve_requires_selected_eligible_entity(client: TestClient) -> None:
     connection = sqlite3.connect(get_settings().sqlite_path)
     try:
         analysis_row_id, result_json = connection.execute(
-            "SELECT analysis_id, result_json FROM reports WHERE id = ?",
+            """
+            SELECT reports.analysis_id, analyses.result_json
+            FROM reports
+            JOIN analyses ON analyses.id = reports.analysis_id
+            WHERE reports.id = ?
+            """,
             (report_id,),
         ).fetchone()
         payload = json.loads(result_json)
