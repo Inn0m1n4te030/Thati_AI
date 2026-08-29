@@ -1,7 +1,10 @@
-from fastapi import APIRouter, HTTPException, Request
+from typing import Annotated
 
-from thati.clients import get_fraud_client
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from thati.clients import FraudClient, get_fraud_client
 from thati.config import get_settings
+from thati.errors import ProviderError, ProviderUnavailableError
 from thati.rate_limit import analyze_limiter
 from thati.schemas import AnalysisResponse, TextAnalyzeRequest
 
@@ -18,7 +21,11 @@ def _client_ip(request: Request) -> str:
 
 
 @router.post("/text", response_model=AnalysisResponse)
-def analyze_text(payload: TextAnalyzeRequest, request: Request) -> AnalysisResponse:
+def analyze_text(
+    payload: TextAnalyzeRequest,
+    request: Request,
+    fraud_client: Annotated[FraudClient, Depends(get_fraud_client)],
+) -> AnalysisResponse:
     settings = get_settings()
     if not analyze_limiter.allow(_client_ip(request)):
         raise HTTPException(status_code=429, detail={"error": "rate_limited"})
@@ -30,10 +37,13 @@ def analyze_text(payload: TextAnalyzeRequest, request: Request) -> AnalysisRespo
         raise HTTPException(status_code=422, detail={"error": "text_too_long"})
 
     try:
-        client = get_fraud_client()
-        assessment = client.analyze_text(text)
-    except RuntimeError:
-        raise HTTPException(status_code=501, detail={"error": "live_mode_unavailable"}) from None
+        assessment = fraud_client.analyze_text(text)
+    except ProviderUnavailableError:
+        raise HTTPException(
+            status_code=503, detail={"error": "provider_unavailable"}
+        ) from None
+    except ProviderError:
+        raise HTTPException(status_code=502, detail={"error": "provider_error"}) from None
     except Exception:
         raise HTTPException(status_code=500, detail={"error": "internal_error"}) from None
 

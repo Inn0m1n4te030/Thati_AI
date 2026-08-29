@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from thati.config import get_settings
 from thati.db import database_is_ready, ensure_database
+from thati.errors import ProviderError, ProviderUnavailableError
 from thati.rate_limit import analyze_limiter
 from thati.routers.analyze import router as analyze_router
 
@@ -33,6 +34,18 @@ app.include_router(analyze_router)
 
 def _safe_error(status_code: int, code: str) -> JSONResponse:
     return JSONResponse(status_code=status_code, content={"error": code})
+
+
+@app.exception_handler(ProviderUnavailableError)
+async def provider_unavailable_handler(
+    _request: Request, _exc: ProviderUnavailableError
+) -> JSONResponse:
+    return _safe_error(503, "provider_unavailable")
+
+
+@app.exception_handler(ProviderError)
+async def provider_error_handler(_request: Request, _exc: ProviderError) -> JSONResponse:
+    return _safe_error(502, "provider_error")
 
 
 @app.exception_handler(HTTPException)

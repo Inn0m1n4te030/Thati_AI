@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from thati.clients import set_fraud_client
 from thati.config import get_settings, reset_settings
 from thati.main import app
 from thati.rate_limit import analyze_limiter
@@ -23,7 +24,10 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "thati.db"))
     reset_settings()
     _restore_limiter()
+    set_fraud_client(None)
     with TestClient(app) as test_client:
         yield test_client
+    set_fraud_client(None)
+    app.dependency_overrides.clear()
     _restore_limiter()
     reset_settings()

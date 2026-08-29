@@ -25,7 +25,7 @@ def _assert_no_leak(response) -> None:
 
 def test_mock_client_module_has_no_external_sdk() -> None:
     root = Path(__file__).resolve().parents[1]
-    for relative in ("thati/mock_client.py", "thati/clients.py", "thati/extract.py"):
+    for relative in ("thati/mock_client.py", "thati/extract.py"):
         source = (root / relative).read_text(encoding="utf-8")
         assert "google" not in source
         assert "genai" not in source

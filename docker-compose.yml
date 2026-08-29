@@ -8,6 +8,7 @@ services:
       SQLITE_PATH: /data/thati.db
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.7-flash}
+      GEMINI_TIMEOUT_MS: ${GEMINI_TIMEOUT_MS:-20000}
       TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-gemini-3.5-transcribe}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     volumes:
