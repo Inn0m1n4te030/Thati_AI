@@ -43,7 +43,12 @@ def test_public_page_enables_audio_tab(client: TestClient) -> None:
     assert "disabled" not in voice
     assert 'data-panel="panel-audio"' in html
     assert 'id="record-start"' in html
+    assert 'id="record-stop"' in html
+    assert 'id="mic-error"' in html
+    assert "အသံသွင်းရန်" in html
     assert 'id="audio-dropzone"' in html
+    recorder_open = html.split('id="recorder"', 1)[1].split(">", 1)[0]
+    assert "is-hidden" not in recorder_open
 
 
 def test_app_js_audio_states_without_innerhtml() -> None:
@@ -54,6 +59,28 @@ def test_app_js_audio_states_without_innerhtml() -> None:
     assert "MediaRecorder" in script
     assert "NotAllowedError" in script
     assert "စာသားမှတ်တမ်း" in script
+
+
+def test_recorder_stays_visible_without_mediadevices() -> None:
+    html = Path("web/index.html").read_text(encoding="utf-8")
+    script = Path("web/app.js").read_text(encoding="utf-8")
+    assert "innerHTML" not in html
+    assert "innerHTML" not in script
+    recorder_open = html.split('id="recorder"', 1)[1].split(">", 1)[0]
+    assert "is-hidden" not in recorder_open
+    assert 'id="record-start"' in html
+    assert 'id="record-stop"' in html
+    body = script.split("function initRecorder()", 1)[1].split("function initAudioUpload()", 1)[0]
+    assert "navigator.mediaDevices" in body
+    assert 'classList.add("is-hidden")' not in body
+    assert "if (!supported) return;" not in body
+    assert "HTTPS" in body
+    assert "localhost" in body
+    assert "M4A/WAV" in body
+    assert "startBtn.disabled = true" in body
+    assert "setMicError" in body
+    assert "NotAllowedError" in script
+    assert "SecurityError" in script
 
 
 def test_mock_wav_returns_deterministic_transcript(client: TestClient) -> None:

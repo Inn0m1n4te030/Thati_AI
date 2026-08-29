@@ -21,6 +21,11 @@ def test_public_page_has_spec_landmarks(client: TestClient) -> None:
     assert "googleapis" not in html
     assert "cdn." not in html.lower()
     assert "GEMINI_API_KEY" not in html
+    assert 'id="record-start"' in html
+    assert 'id="record-stop"' in html
+    assert "အသံသွင်းရန်" in html
+    recorder_open = html.split('id="recorder"', 1)[1].split(">", 1)[0]
+    assert "is-hidden" not in recorder_open
 
 
 def test_public_js_never_leaks_key_or_uses_innerhtml() -> None:

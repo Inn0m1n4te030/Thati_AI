@@ -601,10 +601,17 @@ function initRecorder() {
     navigator.mediaDevices.getUserMedia &&
     window.MediaRecorder
   );
-  if (!supported) return;
   $("recorder").classList.remove("is-hidden");
   const startBtn = $("record-start");
   const stopBtn = $("record-stop");
+  if (!supported) {
+    startBtn.disabled = true;
+    stopBtn.disabled = true;
+    setMicError(
+      "မိုက်ခရိုဖုန်း သုံးရန် HTTPS (သို့မဟုတ် localhost) လိုအပ်သည်။ M4A/WAV စသည့် ဖိုင်ကို တင်၍ စစ်ဆေးနိုင်သည်။"
+    );
+    return;
+  }
   startBtn.addEventListener("click", async () => {
     setMicError("");
     try {
