@@ -17,6 +17,8 @@ class FraudClient(Protocol):
 
     def analyze_image(self, image_path: Path, mime_type: str) -> FraudAssessment: ...
 
+    def analyze_audio(self, audio_path: Path, mime_type: str) -> FraudAssessment: ...
+
 
 def set_fraud_client(client: FraudClient | None) -> None:
     global _override

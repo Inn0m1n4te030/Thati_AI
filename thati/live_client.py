@@ -55,6 +55,52 @@ def image_generate_contents(file_uri: str, mime_type: str) -> list[dict[str, Any
     ]
 
 
+TRANSCRIPTION_LANGUAGE_CODES = ["my-MM", "en-US"]
+TRANSCRIPTION_VOCABULARY = [
+    "KBZPay",
+    "KBZ Pay",
+    "Wave Money",
+    "OTP",
+    "PIN",
+    "account",
+    "transfer",
+    "အကောင့်",
+    "ငွေလွှဲ",
+]
+
+
+def audio_generate_contents(file_uri: str, mime_type: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "file_data": {
+                "file_uri": file_uri,
+                "mime_type": mime_type,
+            }
+        }
+    ]
+
+
+def live_transcription_config() -> dict[str, Any]:
+    return {
+        "audio_transcription_config": {
+            "language_codes": list(TRANSCRIPTION_LANGUAGE_CODES),
+            "language_hints": {"language_codes": list(TRANSCRIPTION_LANGUAGE_CODES)},
+            "mode": "SMART",
+            "custom_vocabulary": list(TRANSCRIPTION_VOCABULARY),
+        }
+    }
+
+
+def _parse_transcript(response: Any) -> str:
+    text = getattr(response, "text", None)
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    parsed = getattr(response, "parsed", None)
+    if isinstance(parsed, str) and parsed.strip():
+        return parsed.strip()
+    raise ProviderError("empty_transcript")
+
+
 def _parse_provider_response(response: Any) -> FraudAssessment:
     parsed = getattr(response, "parsed", None)
     if isinstance(parsed, FraudAssessment):
@@ -123,8 +169,10 @@ class GeminiFraudClient:
         generate_content: GenerateContent,
         files_upload: Callable[..., Any] | None = None,
         files_delete: Callable[..., Any] | None = None,
+        transcription_model: str | None = None,
     ) -> None:
         self.model = model
+        self.transcription_model = transcription_model or "gemini-3.5-transcribe"
         self._generate_content = generate_content
         self._files_upload = files_upload
         self._files_delete = files_delete
@@ -177,6 +225,42 @@ class GeminiFraudClient:
                 except Exception:
                     logger.exception("Failed to delete Gemini file %s", getattr(uploaded, "name", "?"))
 
+    def transcribe_audio(self, audio_path: Path, mime_type: str) -> str:
+        if self._files_upload is None or self._files_delete is None:
+            raise ProviderUnavailableError()
+        uploaded = None
+        try:
+            uploaded = self._files_upload(
+                file=str(audio_path),
+                config={"mime_type": mime_type},
+            )
+            uri = getattr(uploaded, "uri", None)
+            if not uri:
+                raise ProviderError("provider_error")
+            response = self._generate_content(
+                model=self.transcription_model,
+                contents=audio_generate_contents(str(uri), mime_type),
+                config=live_transcription_config(),
+            )
+            return _parse_transcript(response)
+        except ProviderError:
+            raise
+        except ProviderUnavailableError:
+            raise
+        except Exception as exc:
+            logger.exception("Live transcription failed")
+            raise ProviderError("provider_error") from exc
+        finally:
+            if uploaded is not None and self._files_delete is not None:
+                try:
+                    self._files_delete(name=uploaded.name)
+                except Exception:
+                    logger.exception("Failed to delete Gemini file %s", getattr(uploaded, "name", "?"))
+
+    def analyze_audio(self, audio_path: Path, mime_type: str) -> FraudAssessment:
+        transcript = self.transcribe_audio(audio_path, mime_type)
+        return self.analyze_text(transcript)
+
 
 def build_live_client(
     settings: Settings,
@@ -197,6 +281,7 @@ def build_live_client(
         files_delete = sdk.files.delete
         return GeminiFraudClient(
             model=settings.gemini_model,
+            transcription_model=settings.transcription_model,
             generate_content=generate_content,
             files_upload=files_upload,
             files_delete=files_delete,

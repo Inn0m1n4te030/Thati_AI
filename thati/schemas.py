@@ -220,3 +220,4 @@ class AnalysisResponse(BaseModel):
     source_type: SourceType
     assessment: FraudAssessment
     known_blacklist_matches: list[BlacklistMatch] = Field(default_factory=list)
+    transcript: str | None = None

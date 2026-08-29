@@ -6,6 +6,13 @@ from thati.clients import FraudClient, get_fraud_client
 from thati.config import get_settings
 from thati.db import match_entities, persist_analysis
 from thati.errors import ProviderError, ProviderUnavailableError
+from thati.audio import (
+    AudioValidationError,
+    detect_audio_mime,
+    prepare_provider_audio,
+    read_audio_bytes,
+    write_secure_temp_audio,
+)
 from thati.image import ImageValidationError, detect_image_mime, read_upload_bytes, write_secure_temp_image
 from thati.rate_limit import analyze_limiter
 from thati.schemas import AnalysisResponse, BlacklistMatch, TextAnalyzeRequest
@@ -108,4 +115,59 @@ def analyze_image(
         source_type="screenshot",
         assessment=assessment,
         known_blacklist_matches=[BlacklistMatch.model_validate(hit) for hit in hits],
+    )
+
+
+@router.post("/audio", response_model=AnalysisResponse)
+def analyze_audio(
+    request: Request,
+    fraud_client: Annotated[FraudClient, Depends(get_fraud_client)],
+    file: UploadFile = File(...),
+) -> AnalysisResponse:
+    settings = get_settings()
+    if not analyze_limiter.allow(_client_ip(request)):
+        raise HTTPException(status_code=429, detail={"error": "rate_limited"})
+
+    original_path = None
+    converted_path = None
+    try:
+        data = read_audio_bytes(file)
+        mime_type = detect_audio_mime(data[:32], file.content_type)
+        original_path = write_secure_temp_audio(data, mime_type)
+        provider_path, provider_mime = prepare_provider_audio(original_path, mime_type)
+        if provider_path != original_path:
+            converted_path = provider_path
+        assessment = fraud_client.analyze_audio(provider_path, provider_mime)
+        transcript = assessment.extracted_text
+        analysis_id = persist_analysis(
+            settings.sqlite_path,
+            source_type="voice",
+            source_text=transcript,
+            assessment=assessment,
+        )
+        hits = match_entities(settings.sqlite_path, assessment.entities)
+    except AudioValidationError as exc:
+        raise HTTPException(status_code=422, detail={"error": str(exc)}) from None
+    except ProviderUnavailableError:
+        raise HTTPException(
+            status_code=503, detail={"error": "provider_unavailable"}
+        ) from None
+    except ProviderError:
+        raise HTTPException(status_code=502, detail={"error": "provider_error"}) from None
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail={"error": "internal_error"}) from None
+    finally:
+        if original_path is not None:
+            original_path.unlink(missing_ok=True)
+        if converted_path is not None:
+            converted_path.unlink(missing_ok=True)
+
+    return AnalysisResponse(
+        analysis_id=analysis_id,
+        source_type="voice",
+        assessment=assessment,
+        known_blacklist_matches=[BlacklistMatch.model_validate(hit) for hit in hits],
+        transcript=transcript,
     )

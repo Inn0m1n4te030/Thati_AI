@@ -118,11 +118,23 @@ SYNTHETIC_SCREENSHOT_TEXT = (
 )
 
 
+SYNTHETIC_VOICE_TRANSCRIPT = (
+    "မင်္ဂလာပါ KBZPay မှ ဖြစ်ပါတယ်။ အကောင့်ပိတ်ပါမည်။ "
+    "Wave Money သို့ ငွေလွှဲပြီး OTP နှင့် PIN ပို့ပေးပါ။ "
+    "transfer 09-123456789"
+)
+
+
 class MockFraudClient:
     def analyze_image(self, image_path: object, mime_type: str) -> FraudAssessment:
         """Deterministic screenshot result. Pixels are not interpreted in mock mode."""
         del image_path, mime_type
         return self.analyze_text(SYNTHETIC_SCREENSHOT_TEXT)
+
+    def analyze_audio(self, audio_path: object, mime_type: str) -> FraudAssessment:
+        """Deterministic fictional Myanmar transcript. Audio bytes are not decoded."""
+        del audio_path, mime_type
+        return self.analyze_text(SYNTHETIC_VOICE_TRANSCRIPT)
 
     def analyze_text(self, text: str) -> FraudAssessment:
         evidence: list[EvidenceItem] = []
