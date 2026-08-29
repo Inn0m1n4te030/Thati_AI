@@ -2,13 +2,13 @@
 
 Sources: `UI_SPEC.md`, `FINAL_CHECKLIST.md`, git history, and the current app. **`PLAN.md` is not in the repository.**
 
-Replace bracketed placeholders before submitting.
+Replace the live URL placeholder before submitting.
 
 ---
 
 **Project name:** Thati AI (သတိ)
 
-**Participant / team:** [Name or team]
+**Participant / team:** Moe Thu Kyaw
 
 **Live URL:** [https://your-host/] — public UI `/`, health `/health`, admin `/admin` (not linked from the public page). *Deployed `/health` was not verified in the freeze audit; paste the URL only after you have confirmed it.*
 
@@ -101,7 +101,7 @@ Copy-paste block (form fields):
 
 ```
 Project: Thati AI (သတိ)
-Team: [Name or team]
+Team: Moe Thu Kyaw
 Live URL: [https://your-host/]
 
 Problem: Myanmar users receive OTP-pressure and fake-institution messages. They need quoted screening of the message, not a verdict about a person.
