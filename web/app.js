@@ -16,6 +16,33 @@ const ALLOWED_AUDIO_TYPES = new Set([
   "video/webm",
 ]);
 
+const OTP_SAMPLE =
+  "မင်္ဂလာပါ KBZ ဘဏ်မှ ဖြစ်ပါတယ်။ အကောင့်ပိတ်ပါမည်။ 09-123456789 သို့ ငွေလွှဲပြီး OTP ပို့ပေးပါ။ https://kbz-secure-login.example/otp";
+const JOB_SAMPLE = "အလုပ်အင်တာဗျူး အတွက် ဒီလင့်ခ်ကနေ မှတ်ပုံတင်ပါ။ OTP ပို့ပေးရန် လိုသည်။";
+const LUNCH_SAMPLE = "မနက်ဖြန် ညနေ ၅ နာရီမှာ ထမင်းစားကြမယ်။ ကောင်းသောနေ့ဖြစ်ပါစေ။";
+
+const RISK_WORDS = {
+  low: "နိမ့်",
+  medium: "အလယ်အလတ်",
+  high: "မြင့်",
+  critical: "အလွန်မြင့်",
+};
+
+const ERROR_COPY = {
+  text_required: "စာထည့်ရန် လိုပါသည်။",
+  text_too_long: "စာရှည်လွန်းပါသည်။",
+  rate_limited: "ခဏစောင့်ပြီး ပြန်ကြိုးစားပါ။",
+  provider_error: "စစ်ဆေးမှု မပြီးပါ။ ပြန်ကြိုးစားပါ။",
+  provider_unavailable: "စစ်ဆေးမှု ယခု မရနိုင်ပါ။",
+  invalid_request: "ပေးပို့ချက် မမှန်ပါ။",
+  image_too_large: "ပုံသည် 10 MB ထက် ကြီးနေသည်။",
+  unsupported_image_type: "PNG သို့မဟုတ် JPEG သာ လက်ခံသည်။",
+  audio_too_large: "အသံဖိုင်သည် 25 MB ထက် ကြီးနေသည်။",
+  unsupported_audio_type: "ဤအသံအမျိုးအစားကို လက်မခံပါ။",
+  request_failed: "တောင်းဆိုမှု မအောင်မြင်ပါ။",
+  value_required: "တန်ဖိုး ထည့်ပါ။",
+};
+
 function $(id) {
   return document.getElementById(id);
 }
@@ -30,14 +57,133 @@ function setText(node, value) {
   node.textContent = value == null ? "" : String(value);
 }
 
+function clearNode(node) {
+  while (node.firstChild) node.removeChild(node.firstChild);
+}
+
 function setStatus(kind, message) {
   const status = $("status");
   status.className = `status ${kind}`;
   setText(status, message);
 }
 
-function clearNode(node) {
-  while (node.firstChild) node.removeChild(node.firstChild);
+function errorCopy(code) {
+  return ERROR_COPY[code] || ERROR_COPY.request_failed;
+}
+
+async function readError(response) {
+  try {
+    const body = await response.json();
+    return body.error || "request_failed";
+  } catch (_err) {
+    return "request_failed";
+  }
+}
+
+let currentPanel = "panel-text";
+let currentAnalysisId = null;
+let abortController = null;
+let selectedFile = null;
+let previewUrl = null;
+let selectedAudio = null;
+let audioPreviewUrl = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+let inFlight = null;
+
+function currentModePanel() {
+  return currentPanel;
+}
+
+function analyzeEnabled() {
+  if (abortController) return false;
+  if (currentPanel === "panel-text") return Boolean($("message").value.trim());
+  if (currentPanel === "panel-image") return Boolean(selectedFile);
+  if (currentPanel === "panel-audio") return Boolean(selectedAudio);
+  return false;
+}
+
+function syncAnalyzeButton() {
+  $("analyze").disabled = !analyzeEnabled();
+}
+
+function showReportForm(visible) {
+  $("report-form").classList.toggle("is-hidden", !visible);
+  if (!visible) {
+    $("report-note").value = "";
+    $("report-confirm").checked = false;
+    $("submit-report").disabled = true;
+    setText($("report-status"), "");
+    $("report-status").className = "status idle";
+  }
+}
+
+function renderEmpty() {
+  const root = $("result");
+  clearNode(root);
+  currentAnalysisId = null;
+  showReportForm(false);
+  const card = el("div", "card empty-state");
+  const title = el("h2");
+  setText(title, "စစ်ဆေးရန် စာတစ်စောင် ရွေးပါ");
+  const body = el("p");
+  setText(body, "ရလဒ်သည် ဤနေရာတွင် ပေါ်ပါမည်။ အောက်ပါ ဥပမာများကို နှိပ်၍ စမ်းနိုင်သည်။");
+  const chips = el("div", "chip-row");
+  [
+    ["OTP SMS", OTP_SAMPLE],
+    ["အလုပ် ချတ်", JOB_SAMPLE],
+    ["ထမင်းစား", LUNCH_SAMPLE],
+  ].forEach(([label, sample]) => {
+    const chip = el("button", "chip example");
+    chip.type = "button";
+    setText(chip, label);
+    chip.addEventListener("click", () => {
+      switchTab("panel-text");
+      $("message").value = sample;
+      syncAnalyzeButton();
+      $("message").focus();
+    });
+    chips.append(chip);
+  });
+  card.append(title, body, chips);
+  root.append(card);
+}
+
+function renderLoading() {
+  const root = $("result");
+  clearNode(root);
+  showReportForm(false);
+  const card = el("div", "card loading-card");
+  const title = el("h2");
+  setText(title, "စစ်ဆေးနေသည်…");
+  const bar = el("div", "progress");
+  const fill = el("span", "progress-fill");
+  bar.append(fill);
+  card.append(title, bar);
+  root.append(card);
+}
+
+function renderError(code) {
+  const root = $("result");
+  clearNode(root);
+  showReportForm(false);
+  const card = el("div", "card");
+  const title = el("h2");
+  setText(title, "မရပါ");
+  const body = el("p");
+  setText(body, errorCopy(code));
+  const retry = el("button", "btn-primary");
+  retry.type = "button";
+  setText(retry, "ပြန်ကြိုးစားရန်");
+  retry.addEventListener("click", () => startAnalyze());
+  card.append(title, body, retry);
+  root.append(card);
+}
+
+function canShowScore(assessment) {
+  const evidence = assessment && assessment.evidence ? assessment.evidence : [];
+  const uncertainty = assessment && String(assessment.uncertainty || "").trim();
+  return evidence.length > 0 && Boolean(uncertainty);
 }
 
 function appendBlock(parent, title, body, className) {
@@ -54,32 +200,47 @@ function renderResult(payload) {
   const root = $("result");
   clearNode(root);
   if (!payload || !payload.assessment) {
+    renderEmpty();
     return;
   }
   const assessment = payload.assessment;
-  const header = el("div", "card");
-  const risk = el("p");
-  const riskWord = el("span", `risk-${assessment.risk_level || "low"}`);
-  setText(riskWord, assessment.risk_level || "—");
-  const score = el("span");
-  setText(
-    score,
-    ` ညွှန်းကိန်း ${assessment.risk_score ?? "—"} · ဖြစ်နိုင်ခြေ မဟုတ်`
-  );
-  risk.append(riskWord, score);
-  header.append(risk);
+  currentAnalysisId = payload.analysis_id;
+  showReportForm(true);
+
+  const header = el("div", "card status-strip");
+  const riskRow = el("p");
+  const level = assessment.risk_level || "low";
+  const riskWord = el("span", `risk-${level}`);
+  setText(riskWord, `${RISK_WORDS[level] || level} (${level})`);
+  riskRow.append(riskWord);
+  header.append(riskRow);
+  if (canShowScore(assessment)) {
+    const score = el("p", "score-line");
+    setText(score, `ညွှန်းကိန်း ${assessment.risk_score} — ဖြစ်နိုင်ခြေ မဟုတ်`);
+    header.append(score);
+  } else {
+    const withheld = el("p", "meta");
+    setText(withheld, "ညွှန်းကိန်းကို အထောက်အထားနှင့် မသေချာချက် မပြည့်မချင်း မပြပါ။");
+    header.append(withheld);
+  }
   if (payload.known_blacklist_matches && payload.known_blacklist_matches.length) {
-    const chip = el("p", "lime-chip");
-    setText(chip, "လူက အတည်ပြုထားသော စာရင်းနှင့် တူ");
-    header.append(chip);
+    payload.known_blacklist_matches.forEach((hit) => {
+      const chip = el("p", "lime-chip");
+      setText(
+        chip,
+        `လူက အတည်ပြုထားသော စာရင်းနှင့် တူ · ${hit.entity_type} · ${hit.masked_display_value || ""}`
+      );
+      header.append(chip);
+    });
   }
   root.append(header);
+
   if (payload.source_type === "voice" || payload.transcript) {
     appendBlock(root, "စာသားမှတ်တမ်း", payload.transcript || assessment.extracted_text);
   }
   appendBlock(root, "မြန်မာ အနှစ်ချုပ်", assessment.myanmar_summary);
   appendBlock(root, "English summary", assessment.english_summary, "card mute-card");
-  appendBlock(root, "မသေချာချက်", assessment.uncertainty);
+  appendBlock(root, "မသေချာချက်", assessment.uncertainty || "—");
 
   const evidenceCard = el("div", "card");
   const evidenceTitle = el("h3");
@@ -107,7 +268,7 @@ function renderResult(payload) {
 
   const entityCard = el("div", "card");
   const entityTitle = el("h3");
-  setText(entityTitle, "Identifiers");
+  setText(entityTitle, "ထုတ်ယူထားသော identifiers");
   entityCard.append(entityTitle);
   const chips = el("div", "chip-row");
   (assessment.entities || []).forEach((item) => {
@@ -128,28 +289,95 @@ function renderResult(payload) {
   const actionsTitle = el("h3");
   setText(actionsTitle, "ဘေးကင်းသော နောက်တစ်ဆင့်");
   actionsCard.append(actionsTitle);
-  const actions = el("ul", "evidence");
   (assessment.myanmar_safe_actions || []).forEach((step) => {
-    const li = el("li");
-    setText(li, step);
-    actions.append(li);
+    const action = el("div", "safe-action");
+    const mark = el("span", "safe-mark");
+    setText(mark, "•");
+    const text = el("p");
+    setText(text, step);
+    action.append(mark, text);
+    actionsCard.append(action);
   });
-  actionsCard.append(actions);
   root.append(actionsCard);
 }
 
-async function readError(response) {
+function setBusy(busy) {
+  $("analyze").hidden = busy;
+  $("cancel-analyze").hidden = !busy;
+  $("message").disabled = busy;
+  document.querySelectorAll(".tab").forEach((tab) => {
+    tab.disabled = busy;
+  });
+  if (!busy) syncAnalyzeButton();
+}
+
+function cancelAnalyze() {
+  if (abortController) abortController.abort();
+}
+
+async function startAnalyze() {
+  if (currentPanel === "panel-text") return analyzeText();
+  if (currentPanel === "panel-image") return analyzeImage();
+  if (currentPanel === "panel-audio") return analyzeAudio();
+}
+
+async function analyzeText() {
+  const text = $("message").value;
+  if (!text.trim()) {
+    setStatus("bad", errorCopy("text_required"));
+    renderError("text_required");
+    return;
+  }
+  abortController = new AbortController();
+  setBusy(true);
+  setStatus("idle", "စစ်ဆေးနေသည်…");
+  renderLoading();
   try {
-    const body = await response.json();
-    return body.error || "request_failed";
-  } catch (_err) {
-    return "request_failed";
+    inFlight = fetch("/api/analyze/text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal: abortController.signal,
+    });
+    const response = await inFlight;
+    if (!response.ok) {
+      const code = await readError(response);
+      setStatus("bad", errorCopy(code));
+      renderError(code);
+      return;
+    }
+    const payload = await response.json();
+    renderResult(payload);
+    setStatus("ok", "စာသား စစ်ဆေးပြီးပါပြီ။");
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      setStatus("idle", "ပယ်ဖျက်ပြီး။");
+      renderEmpty();
+      return;
+    }
+    setStatus("bad", errorCopy("request_failed"));
+    renderError("request_failed");
+  } finally {
+    abortController = null;
+    inFlight = null;
+    setBusy(false);
   }
 }
 
-let selectedFile = null;
-let previewUrl = null;
-let inFlight = null;
+function switchTab(panelId) {
+  currentPanel = panelId;
+  document.querySelectorAll(".tab[data-panel]").forEach((tab) => {
+    const on = tab.getAttribute("data-panel") === panelId;
+    tab.classList.toggle("is-active", on);
+    tab.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll(".panel").forEach((panel) => {
+    const on = panel.id === panelId;
+    panel.hidden = !on;
+    panel.classList.toggle("is-hidden", !on);
+  });
+  syncAnalyzeButton();
+}
 
 function setImageError(message) {
   const node = $("image-error");
@@ -166,21 +394,15 @@ function clearImage() {
   $("image-input").value = "";
   $("image-preview").removeAttribute("src");
   $("image-preview-wrap").classList.add("is-hidden");
-  $("analyze-image").disabled = true;
   setImageError("");
+  syncAnalyzeButton();
 }
 
 function validateImageFile(file) {
-  if (!file) {
-    return "image_required";
-  }
+  if (!file) return "image_required";
   const type = file.type === "image/jpg" ? "image/jpeg" : file.type;
-  if (!ALLOWED_TYPES.has(type)) {
-    return "unsupported_image_type";
-  }
-  if (file.size > IMAGE_MAX_BYTES) {
-    return "image_too_large";
-  }
+  if (!ALLOWED_TYPES.has(type)) return "unsupported_image_type";
+  if (file.size > IMAGE_MAX_BYTES) return "image_too_large";
   return "";
 }
 
@@ -188,11 +410,7 @@ function acceptImageFile(file) {
   const error = validateImageFile(file);
   if (error) {
     clearImage();
-    setImageError(
-      error === "image_too_large"
-        ? "10 MB ထက် ကြီးသော ဖိုင် မရပါ။"
-        : "PNG သို့မဟုတ် JPEG သာ လက်ခံသည်။"
-    );
+    setImageError(errorCopy(error));
     return;
   }
   selectedFile = file;
@@ -201,87 +419,51 @@ function acceptImageFile(file) {
   $("image-preview").src = previewUrl;
   setText($("image-meta"), `${file.name} · ${file.type} · ${file.size} bytes`);
   $("image-preview-wrap").classList.remove("is-hidden");
-  $("analyze-image").disabled = false;
   setImageError("");
-}
-
-function switchTab(panelId) {
-  document.querySelectorAll(".tab[data-panel]").forEach((tab) => {
-    const on = tab.getAttribute("data-panel") === panelId;
-    tab.classList.toggle("is-active", on);
-    tab.setAttribute("aria-selected", on ? "true" : "false");
-  });
-  document.querySelectorAll(".panel").forEach((panel) => {
-    const on = panel.id === panelId;
-    panel.hidden = !on;
-    panel.classList.toggle("is-hidden", !on);
-  });
-}
-
-async function analyzeText() {
-  const text = $("message").value;
-  if (!text.trim()) {
-    setStatus("bad", "စာထည့်ပါ။");
-    return;
-  }
-  setStatus("idle", "စစ်ဆေးနေသည်…");
-  $("analyze-text").disabled = true;
-  try {
-    inFlight = fetch("/api/analyze/text", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    const response = await inFlight;
-    if (!response.ok) {
-      setStatus("bad", `မရပါ (${await readError(response)})`);
-      clearNode($("result"));
-      return;
-    }
-    const payload = await response.json();
-    renderResult(payload);
-    setStatus("ok", "စာသား စစ်ဆေးပြီးပါပြီ။");
-  } catch (_err) {
-    setStatus("bad", "ချိတ်ဆက်မရပါ။");
-  } finally {
-    $("analyze-text").disabled = false;
-    inFlight = null;
-  }
+  syncAnalyzeButton();
 }
 
 async function analyzeImage() {
   const error = validateImageFile(selectedFile);
   if (error) {
-    setImageError("စစ်ဆေးရန် မှန်ကန်သော PNG/JPEG ရွေးပါ။");
+    setImageError(errorCopy(error));
     return;
   }
+  abortController = new AbortController();
+  setBusy(true);
   setStatus("idle", "စစ်ဆေးနေသည်…");
-  $("analyze-image").disabled = true;
+  renderLoading();
   const body = new FormData();
   body.append("file", selectedFile, selectedFile.name);
   try {
-    inFlight = fetch("/api/analyze/image", { method: "POST", body });
+    inFlight = fetch("/api/analyze/image", {
+      method: "POST",
+      body,
+      signal: abortController.signal,
+    });
     const response = await inFlight;
     if (!response.ok) {
-      setStatus("bad", `မရပါ (${await readError(response)})`);
-      clearNode($("result"));
+      const code = await readError(response);
+      setStatus("bad", errorCopy(code));
+      renderError(code);
       return;
     }
     const payload = await response.json();
     renderResult(payload);
     setStatus("ok", "မျက်နှာပြင်ပုံ စစ်ဆေးပြီးပါပြီ။");
-  } catch (_err) {
-    setStatus("bad", "ချိတ်ဆက်မရပါ။");
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      setStatus("idle", "ပယ်ဖျက်ပြီး။");
+      renderEmpty();
+      return;
+    }
+    setStatus("bad", errorCopy("request_failed"));
+    renderError("request_failed");
   } finally {
-    $("analyze-image").disabled = !selectedFile;
+    abortController = null;
     inFlight = null;
+    setBusy(false);
   }
-}
-
-function initTabs() {
-  document.querySelectorAll(".tab[data-panel]").forEach((tab) => {
-    tab.addEventListener("click", () => switchTab(tab.getAttribute("data-panel")));
-  });
 }
 
 function initImageUpload() {
@@ -314,11 +496,6 @@ function initImageUpload() {
   $("remove-image").addEventListener("click", () => clearImage());
 }
 
-let selectedAudio = null;
-let audioPreviewUrl = null;
-let mediaRecorder = null;
-let recordedChunks = [];
-
 function setAudioError(message) {
   const node = $("audio-error");
   node.className = message ? "status bad" : "status idle";
@@ -340,8 +517,8 @@ function clearAudio() {
   $("audio-input").value = "";
   $("audio-playback").removeAttribute("src");
   $("audio-preview-wrap").classList.add("is-hidden");
-  $("analyze-audio").disabled = true;
   setAudioError("");
+  syncAnalyzeButton();
 }
 
 function validateAudioFile(file) {
@@ -359,11 +536,7 @@ function acceptAudioFile(file) {
   const error = validateAudioFile(file);
   if (error) {
     clearAudio();
-    setAudioError(
-      error === "audio_too_large"
-        ? "25 MB ထက် ကြီးသော ဖိုင် မရပါ။"
-        : "WAV, MP3, M4A, OGG, FLAC သို့မဟုတ် WebM သာ လက်ခံသည်။"
-    );
+    setAudioError(errorCopy(error));
     return;
   }
   selectedAudio = file;
@@ -372,8 +545,8 @@ function acceptAudioFile(file) {
   $("audio-playback").src = audioPreviewUrl;
   setText($("audio-meta"), `${file.name} · ${file.type || "audio"} · ${file.size} bytes`);
   $("audio-preview-wrap").classList.remove("is-hidden");
-  $("analyze-audio").disabled = false;
   setAudioError("");
+  syncAnalyzeButton();
 }
 
 function explainMicError(err) {
@@ -400,10 +573,12 @@ function pickRecorderMime() {
 }
 
 function initRecorder() {
-  const supported = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
-  if (!supported) {
-    return;
-  }
+  const supported = !!(
+    navigator.mediaDevices &&
+    navigator.mediaDevices.getUserMedia &&
+    window.MediaRecorder
+  );
+  if (!supported) return;
   $("recorder").classList.remove("is-hidden");
   const startBtn = $("record-start");
   const stopBtn = $("record-stop");
@@ -419,7 +594,8 @@ function initRecorder() {
       });
       mediaRecorder.addEventListener("stop", () => {
         stream.getTracks().forEach((track) => track.stop());
-        const type = mediaRecorder && mediaRecorder.mimeType ? mediaRecorder.mimeType.split(";")[0] : "audio/webm";
+        const type =
+          mediaRecorder && mediaRecorder.mimeType ? mediaRecorder.mimeType.split(";")[0] : "audio/webm";
         const blob = new Blob(recordedChunks, { type: type || "audio/webm" });
         const file = new File([blob], "recording.webm", { type: blob.type || "audio/webm" });
         acceptAudioFile(file);
@@ -471,44 +647,159 @@ function initAudioUpload() {
 async function analyzeAudio() {
   const error = validateAudioFile(selectedAudio);
   if (error) {
-    setAudioError("စစ်ဆေးရန် အသံဖိုင် ရွေးပါ။");
+    setAudioError(errorCopy(error));
     return;
   }
+  abortController = new AbortController();
+  setBusy(true);
   setStatus("idle", "စစ်ဆေးနေသည်…");
-  $("analyze-audio").disabled = true;
+  renderLoading();
   const body = new FormData();
   body.append("file", selectedAudio, selectedAudio.name);
   try {
-    inFlight = fetch("/api/analyze/audio", { method: "POST", body });
+    inFlight = fetch("/api/analyze/audio", {
+      method: "POST",
+      body,
+      signal: abortController.signal,
+    });
     const response = await inFlight;
     if (!response.ok) {
-      setStatus("bad", `မရပါ (${await readError(response)})`);
-      clearNode($("result"));
+      const code = await readError(response);
+      setStatus("bad", errorCopy(code));
+      renderError(code);
       return;
     }
     const payload = await response.json();
     renderResult(payload);
     setStatus("ok", "အသံ စစ်ဆေးပြီးပါပြီ။");
-  } catch (_err) {
-    setStatus("bad", "ချိတ်ဆက်မရပါ။");
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      setStatus("idle", "ပယ်ဖျက်ပြီး။");
+      renderEmpty();
+      return;
+    }
+    setStatus("bad", errorCopy("request_failed"));
+    renderError("request_failed");
   } finally {
-    $("analyze-audio").disabled = !selectedAudio;
+    abortController = null;
     inFlight = null;
+    setBusy(false);
   }
 }
 
 function initAudio() {
   initAudioUpload();
   initRecorder();
-  $("analyze-audio").addEventListener("click", () => analyzeAudio());
+}
+
+function initTabs() {
+  document.querySelectorAll(".tab[data-panel]").forEach((tab) => {
+    tab.addEventListener("click", () => switchTab(tab.getAttribute("data-panel")));
+  });
+}
+
+async function loadMode() {
+  try {
+    const response = await fetch("/health");
+    const body = await response.json();
+    const mode = body.mode === "live" ? "live" : "mock";
+    const badge = $("mode-badge");
+    badge.classList.toggle("is-live", mode === "live");
+    setText(badge, mode);
+  } catch (_err) {
+    setText($("mode-badge"), "mock");
+  }
+}
+
+function initReport() {
+  $("report-confirm").addEventListener("change", () => {
+    $("submit-report").disabled = !$("report-confirm").checked || !currentAnalysisId;
+  });
+  $("report-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!currentAnalysisId || !$("report-confirm").checked) return;
+    $("submit-report").disabled = true;
+    try {
+      const response = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          analysis_id: currentAnalysisId,
+          note: $("report-note").value,
+        }),
+      });
+      const status = $("report-status");
+      if (!response.ok) {
+        status.className = "status bad";
+        setText(status, errorCopy(await readError(response)));
+        $("submit-report").disabled = false;
+        return;
+      }
+      status.className = "status ok";
+      setText(status, "ပေးပို့ပြီးပါပြီ။ လူက သုံးသပ်မှသာ စာရင်းသွင်းပါမည်။");
+    } catch (_err) {
+      $("report-status").className = "status bad";
+      setText($("report-status"), errorCopy("request_failed"));
+      $("submit-report").disabled = false;
+    }
+  });
+}
+
+function initBlacklist() {
+  $("blacklist-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const value = $("check-value").value;
+    const entityType = $("check-type").value;
+    const out = $("check-result");
+    if (!value.trim()) {
+      out.className = "status bad";
+      setText(out, errorCopy("value_required"));
+      return;
+    }
+    const params = new URLSearchParams({ entity_type: entityType, value });
+    try {
+      const response = await fetch(`/api/blacklist/check?${params.toString()}`);
+      const body = await response.json();
+      if (!response.ok) {
+        out.className = "status bad";
+        setText(out, errorCopy(body.error || "request_failed"));
+        return;
+      }
+      if (body.matched) {
+        out.className = "status ok";
+        setText(
+          out,
+          `လူက အတည်ပြုထားသော စာရင်းနှင့် တူ · ${body.entity_type} · ${body.masked_display_value || ""}`
+        );
+      } else {
+        out.className = "status idle";
+        setText(out, "စာရင်းတွင် မတွေ့ပါ။");
+      }
+    } catch (_err) {
+      out.className = "status bad";
+      setText(out, errorCopy("request_failed"));
+    }
+  });
 }
 
 function init() {
+  loadMode();
+  renderEmpty();
   initTabs();
   initImageUpload();
-  $("analyze-text").addEventListener("click", () => analyzeText());
-  $("analyze-image").addEventListener("click", () => analyzeImage());
   initAudio();
+  initReport();
+  initBlacklist();
+  $("analyze").addEventListener("click", () => startAnalyze());
+  $("cancel-analyze").addEventListener("click", () => cancelAnalyze());
+  $("message").addEventListener("input", () => syncAnalyzeButton());
+  $("message").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (!$("analyze").disabled) startAnalyze();
+    }
+  });
+  syncAnalyzeButton();
 }
 
 init();

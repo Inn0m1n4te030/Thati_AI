@@ -3,79 +3,127 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Thati AI</title>
+    <title>Thati AI — သတိ</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
-  <body>
+  <body class="public">
     <header class="topbar">
-      <div class="wordmark">သတိ</div>
+      <div class="brand">
+        <p class="wordmark">သတိ</p>
+        <p class="product-name">Thati AI</p>
+        <p id="mode-badge" class="mode-badge" aria-live="polite">mode</p>
+      </div>
       <p class="trust">
         ဤရလဒ်သည် စာသားပုံစံ စစ်ဆေးချက်သာ ဖြစ်သည်။ လူတစ်ဦးကို ပြစ်မှုကျူးလွန်သူဟု မသတ်မှတ်ပါ။
       </p>
-      <a href="/admin">စစ်ဆေးရန်</a>
+      <a href="/admin">စစ်ဆေးရန် /admin</a>
     </header>
-    <main class="page studio">
-      <nav class="tabs" role="tablist" aria-label="စစ်ဆေးမည့် အမျိုးအစား">
-        <button type="button" class="tab is-active" role="tab" id="tab-text" aria-selected="true" data-panel="panel-text">
-          စာသား
-        </button>
-        <button type="button" class="tab" role="tab" id="tab-image" aria-selected="false" data-panel="panel-image">
-          မျက်နှာပြင်ပုံ
-        </button>
-        <button type="button" class="tab" role="tab" id="tab-voice" aria-selected="false" data-panel="panel-audio">
-          အသံ
-        </button>
-      </nav>
 
-      <section id="panel-text" class="card panel" role="tabpanel">
-        <label for="message">သံသယရှိသော စာ</label>
-        <textarea id="message" rows="6" placeholder="သံသယရှိသော စာကို ဤနေရာတွင် ကူးထည့်ပါ"></textarea>
-        <div class="actions">
-          <button type="button" class="btn-primary" id="analyze-text">စစ်ဆေးရန်</button>
+    <section class="hero">
+      <h1>သံသယရှိသော စာကို ကူးထည့်ပါ။ ကိုးကားချက်နှင့် ဘေးကင်းသော နောက်တစ်ဆင့်ကို မြင်ရပါမည်။</h1>
+    </section>
+
+    <main class="studio">
+      <section class="compose" aria-label="စာထည့်ရန်">
+        <nav class="tabs" role="tablist" aria-label="စစ်ဆေးမည့် အမျိုးအစား">
+          <button type="button" class="tab is-active" role="tab" id="tab-text" aria-selected="true" aria-controls="panel-text" data-panel="panel-text">
+            စာသား
+          </button>
+          <button type="button" class="tab" role="tab" id="tab-image" aria-selected="false" aria-controls="panel-image" data-panel="panel-image">
+            မျက်နှာပြင်ပုံ
+          </button>
+          <button type="button" class="tab" role="tab" id="tab-voice" aria-selected="false" aria-controls="panel-audio" data-panel="panel-audio">
+            အသံ
+          </button>
+        </nav>
+
+        <div id="panel-text" class="panel card" role="tabpanel" aria-labelledby="tab-text">
+          <label for="message">သံသယရှိသော စာ</label>
+          <textarea id="message" rows="7" placeholder="သံသယရှိသော စာကို ဤနေရာတွင် ကူးထည့်ပါ"></textarea>
+          <p class="hint">Enter = စစ်ဆေးရန် · Shift+Enter = စာကြောင်းအသစ်</p>
+        </div>
+
+        <div id="panel-image" class="panel card is-hidden" role="tabpanel" aria-labelledby="tab-image" hidden>
+          <p class="meta">PNG သို့မဟုတ် JPEG သာ။ အများဆုံး 10 MB။ မမြင်ရသော စာကို ခန့်မှန်းမည် မဟုတ်ပါ။</p>
+          <div id="dropzone" class="dropzone" tabindex="0">
+            <input id="image-input" type="file" accept="image/png,image/jpeg" hidden />
+            <p>နှိပ်၍ ရွေးပါ သို့မဟုတ် ဤနေရာသို့ ဆွဲထည့်ပါ</p>
+          </div>
+          <div id="image-preview-wrap" class="preview-wrap is-hidden">
+            <img id="image-preview" alt="ရွေးထားသော မျက်နှာပြင်ပုံ" />
+            <p id="image-meta" class="meta"></p>
+            <button type="button" class="btn-ghost" id="remove-image">ဖယ်ရှားရန်</button>
+          </div>
+          <p id="image-error" class="status idle" role="status"></p>
+        </div>
+
+        <div id="panel-audio" class="panel card is-hidden" role="tabpanel" aria-labelledby="tab-voice" hidden>
+          <p class="meta">WAV, MP3, M4A, OGG, FLAC သို့မဟုတ် browser WebM။ အများဆုံး 25 MB။</p>
+          <div id="recorder" class="recorder is-hidden">
+            <button type="button" class="btn-primary" id="record-start">အသံသွင်းရန်</button>
+            <button type="button" class="btn-urgent" id="record-stop" disabled>ရပ်ရန်</button>
+            <p id="mic-error" class="status idle" role="status"></p>
+          </div>
+          <div id="audio-dropzone" class="dropzone" tabindex="0">
+            <input id="audio-input" type="file" accept="audio/wav,audio/mpeg,audio/mp4,audio/ogg,audio/flac,audio/webm,video/webm,.wav,.mp3,.m4a,.ogg,.flac,.webm" hidden />
+            <p>အသံဖိုင် ရွေးပါ သို့မဟုတ် ဆွဲထည့်ပါ</p>
+          </div>
+          <div id="audio-preview-wrap" class="preview-wrap is-hidden">
+            <audio id="audio-playback" controls></audio>
+            <p id="audio-meta" class="meta"></p>
+            <button type="button" class="btn-ghost" id="remove-audio">ဖယ်ရှားရန်</button>
+          </div>
+          <p id="audio-error" class="status idle" role="status"></p>
+        </div>
+
+        <div class="dock">
+          <button type="button" class="btn-primary" id="analyze" disabled>စစ်ဆေးရန်</button>
+          <button type="button" class="btn-ghost" id="cancel-analyze" hidden>ပယ်ဖျက်</button>
         </div>
       </section>
 
-      <section id="panel-image" class="card panel is-hidden" role="tabpanel" hidden>
-        <p class="meta">PNG သို့မဟုတ် JPEG သာ။ အများဆုံး 10 MB။ မမြင်ရသော စာကို ခန့်မှန်းမည် မဟုတ်ပါ။</p>
-        <div id="dropzone" class="dropzone" tabindex="0">
-          <input id="image-input" type="file" accept="image/png,image/jpeg" hidden />
-          <p>နှိပ်၍ ရွေးပါ သို့မဟုတ် ဤနေရာသို့ ဆွဲထည့်ပါ</p>
-        </div>
-        <div id="image-preview-wrap" class="preview-wrap is-hidden">
-          <img id="image-preview" alt="ရွေးထားသော မျက်နှာပြင်ပုံ" />
-          <p id="image-meta" class="meta"></p>
-          <button type="button" class="btn-ghost" id="remove-image">ဖယ်ရှားရန်</button>
-        </div>
-        <p id="image-error" class="status idle" role="status"></p>
-        <div class="actions">
-          <button type="button" class="btn-primary" id="analyze-image" disabled>စစ်ဆေးရန်</button>
-        </div>
-      </section>
+      <section class="result-column">
+        <p class="disclaimer" id="disclaimer">
+          ဤကိရိယာသည် စစ်ဆေးချက် (screening) သာ ဖြစ်သည်။ ပြစ်မှုကျူးလွန်ကြောင်း အချက်အလက် ဆုံးဖြတ်ချက် မဟုတ်ပါ။
+        </p>
+        <p id="status" class="status idle" role="status" aria-live="polite"></p>
+        <div id="result" class="result" aria-live="polite"></div>
 
-      <section id="panel-audio" class="card panel is-hidden" role="tabpanel" hidden>
-        <p class="meta">WAV, MP3, M4A, OGG, FLAC သို့မဟုတ် browser WebM။ အများဆုံး 25 MB။</p>
-        <div id="recorder" class="recorder is-hidden">
-          <button type="button" class="btn-primary" id="record-start">အသံသွင်းရန်</button>
-          <button type="button" class="btn-urgent" id="record-stop" disabled>ရပ်ရန်</button>
-          <p id="mic-error" class="status idle" role="status"></p>
-        </div>
-        <div id="audio-dropzone" class="dropzone" tabindex="0">
-          <input id="audio-input" type="file" accept="audio/wav,audio/mpeg,audio/mp4,audio/ogg,audio/flac,audio/webm,video/webm,.wav,.mp3,.m4a,.ogg,.flac,.webm" hidden />
-          <p>အသံဖိုင် ရွေးပါ သို့မဟုတ် ဆွဲထည့်ပါ</p>
-        </div>
-        <div id="audio-preview-wrap" class="preview-wrap is-hidden">
-          <audio id="audio-playback" controls></audio>
-          <p id="audio-meta" class="meta"></p>
-          <button type="button" class="btn-ghost" id="remove-audio">ဖယ်ရှားရန်</button>
-        </div>
-        <p id="audio-error" class="status idle" role="status"></p>
-        <div class="actions">
-          <button type="button" class="btn-primary" id="analyze-audio" disabled>စစ်ဆေးရန်</button>
-        </div>
-      </section>
+        <form id="report-form" class="card report-form is-hidden">
+          <h2>သတင်းပို့ရန်</h2>
+          <p>
+            ဤအဆင့်သည် စောင့်ဆိုင်းစာရင်းသို့ ပို့ခြင်းသာ ဖြစ်သည်။ AI က blacklist ကို အလိုအလျောက် မရေးပါ။ လူက သုံးသပ်မှသာ စာရင်းသွင်းပါမည်။
+          </p>
+          <label for="report-note">မှတ်ချက် (optional)</label>
+          <textarea id="report-note" rows="3"></textarea>
+          <label class="check-label">
+            <input id="report-confirm" type="checkbox" />
+            <span>လူက မသုံးသပ်မီ စာရင်းမသွင်းကြောင်း နားလည်ပါသည်။</span>
+          </label>
+          <button type="submit" class="btn-ghost" id="submit-report" disabled>သတင်းပို့ရန်</button>
+          <p id="report-status" class="status idle" role="status"></p>
+        </form>
 
-      <p id="status" class="status idle" role="status"></p>
-      <section id="result" class="result" aria-live="polite"></section>
+        <form id="blacklist-form" class="card checker">
+          <h2>လူက အတည်ပြုထားသော စာရင်း စစ်ရန်</h2>
+          <p class="meta">ဤစစ်ဆေးမှုသည် လူက အတည်ပြုပြီးမှသာ ရှိသော hashed စာရင်းကို ကြည့်သည်။</p>
+          <label for="check-type">အမျိုးအစား</label>
+          <select id="check-type">
+            <option value="phone">phone</option>
+            <option value="url">url</option>
+            <option value="email">email</option>
+            <option value="bank_account">bank_account</option>
+            <option value="social_handle">social_handle</option>
+            <option value="crypto_wallet">crypto_wallet</option>
+            <option value="other">other</option>
+          </select>
+          <label for="check-value">တန်ဖိုး (ဤစာတွင် ပေါ်သည့်အတိုင်း)</label>
+          <input id="check-value" type="text" autocomplete="off" />
+          <button type="submit" class="btn-ghost">စစ်ရန်</button>
+          <p id="check-result" class="status idle" role="status"></p>
+        </form>
+      </section>
     </main>
     <script src="/static/app.js"></script>
   </body>
