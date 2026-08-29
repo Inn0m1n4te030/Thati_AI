@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +10,8 @@ from thati.live_client import (
     GeminiFraudClient,
     TRANSCRIPTION_LANGUAGE_CODES,
     TRANSCRIPTION_VOCABULARY,
+    TRANSCRIBE_ONLY_PROMPT,
+    audio_inline_input,
     audio_interaction_input,
     live_transcription_config,
     wrap_untrusted_message,
@@ -19,35 +22,36 @@ from tests.test_analyze_audio import wav_bytes
 from tests.test_schemas import _valid_assessment
 
 FAKE_FILE_URI = "https://generativelanguage.googleapis.com/v1beta/files/thati-audio"
-FAKE_FILE_NAME = "files/thati-audio"
 
 
-def test_transcription_request_uses_interactions_smart_config() -> None:
+def test_transcription_request_uses_burmese_smart_config() -> None:
     config = live_transcription_config()["transcription_config"]
-    assert config["language_codes"] == ["my-MM", "en-US"]
+    assert config["language_codes"][0] == "my-MM"
     assert config["language_codes"] == TRANSCRIPTION_LANGUAGE_CODES
+    assert "en-US" in config["language_codes"]
     assert config["mode"] == {"type": "smart"}
-    for term in ("KBZPay", "Wave Money", "OTP", "PIN", "account", "transfer"):
+    for term in ("KBZPay", "Wave Money", "OTP", "PIN", "AYA", "CVV", "အကောင့်"):
         assert term in config["custom_vocabulary"]
         assert term in TRANSCRIPTION_VOCABULARY
-    assert audio_interaction_input(FAKE_FILE_URI) == [{"type": "audio", "uri": FAKE_FILE_URI}]
+    assert "မြန်မာ" in TRANSCRIBE_ONLY_PROMPT
+    assert "Burmese" in TRANSCRIBE_ONLY_PROMPT
+    inline = audio_inline_input(b"abc", "audio/mp4")
+    assert inline == [
+        {
+            "type": "audio",
+            "mime_type": "audio/m4a",
+            "data": base64.b64encode(b"abc").decode("ascii"),
+        }
+    ]
     assert audio_interaction_input(FAKE_FILE_URI, "audio/mp4") == [
         {"type": "audio", "uri": FAKE_FILE_URI, "mime_type": "audio/m4a"}
     ]
 
 
-def test_live_audio_transcribes_then_analyzes_text_and_deletes_files() -> None:
+def test_live_audio_transcribes_inline_then_analyzes_text() -> None:
     interactions: list[dict[str, object]] = []
     generates: list[dict[str, object]] = []
-    deleted: list[str] = []
-
-    def fake_upload(*, file: str, config: dict[str, str] | None = None) -> SimpleNamespace:
-        assert Path(file).exists()
-        assert config == {"mime_type": "audio/wav"}
-        return SimpleNamespace(name=FAKE_FILE_NAME, uri=FAKE_FILE_URI)
-
-    def fake_delete(*, name: str, config: object = None) -> None:
-        deleted.append(name)
+    data = wav_bytes()
 
     def fake_interaction(*, model: str, input: object, generation_config: dict[str, object]) -> SimpleNamespace:
         interactions.append(
@@ -63,12 +67,10 @@ def test_live_audio_transcribes_then_analyzes_text_and_deletes_files() -> None:
         model="gemini-3.7-flash",
         transcription_model="gemini-3.5-transcribe",
         generate_content=fake_generate,
-        files_upload=fake_upload,
-        files_delete=fake_delete,
         create_interaction=fake_interaction,
     )
     path = Path("clip.wav")
-    path.write_bytes(wav_bytes())
+    path.write_bytes(data)
     try:
         assessment = live.analyze_audio(path, "audio/wav")
     finally:
@@ -77,26 +79,18 @@ def test_live_audio_transcribes_then_analyzes_text_and_deletes_files() -> None:
     assert len(interactions) == 1
     transcribe = interactions[0]
     assert transcribe["model"] == "gemini-3.5-transcribe"
-    assert transcribe["input"] == audio_interaction_input(FAKE_FILE_URI, "audio/wav")
+    assert transcribe["input"] == audio_inline_input(data, "audio/wav")
     cfg = transcribe["generation_config"]["transcription_config"]
-    assert cfg["language_codes"] == ["my-MM", "en-US"]
+    assert cfg["language_codes"][0] == "my-MM"
     assert cfg["mode"] == {"type": "smart"}
-    assert "KBZPay" in cfg["custom_vocabulary"]
     assert generates[0]["model"] == "gemini-3.7-flash"
     assert generates[0]["contents"] == wrap_untrusted_message(SYNTHETIC_VOICE_TRANSCRIPT)
     assert assessment.extracted_text == SYNTHETIC_VOICE_TRANSCRIPT
-    assert deleted == [FAKE_FILE_NAME]
 
 
 def test_empty_interactions_transcript_falls_back_to_understanding_model() -> None:
     generates: list[object] = []
-
-    def fake_upload(*, file: str, config: dict[str, str] | None = None) -> SimpleNamespace:
-        assert config == {"mime_type": "audio/wav"}
-        return SimpleNamespace(name=FAKE_FILE_NAME, uri=FAKE_FILE_URI)
-
-    def fake_delete(*, name: str, config: object = None) -> None:
-        return None
+    data = wav_bytes()
 
     def empty_interaction(**_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(output_text="   ", text=None, parsed=None, steps=[])
@@ -111,19 +105,18 @@ def test_empty_interactions_transcript_falls_back_to_understanding_model() -> No
         model="gemini-3.7-flash",
         transcription_model="gemini-3.5-transcribe",
         generate_content=fake_generate,
-        files_upload=fake_upload,
-        files_delete=fake_delete,
         create_interaction=empty_interaction,
     )
     path = Path("clip.wav")
-    path.write_bytes(wav_bytes())
+    path.write_bytes(data)
     try:
         assessment = live.analyze_audio(path, "audio/wav")
     finally:
         path.unlink(missing_ok=True)
 
-    assert generates[0][0]["file_data"]["file_uri"] == FAKE_FILE_URI
-    assert generates[0][0]["file_data"]["mime_type"] == "audio/wav"
+    assert generates[0][0]["inline_data"]["mime_type"] == "audio/wav"
+    assert generates[0][0]["inline_data"]["data"] == base64.b64encode(data).decode("ascii")
+    assert "မြန်မာ" in generates[0][1]
     assert assessment.extracted_text == SYNTHETIC_VOICE_TRANSCRIPT
 
 
@@ -133,16 +126,6 @@ def test_live_audio_http_cleanup_on_success_and_failure(
     monkeypatch.setenv("APP_MODE", "live")
     monkeypatch.setenv("GEMINI_API_KEY", "secret-should-not-leak")
     reset_settings()
-    deleted: list[str] = []
-    local_paths: list[str] = []
-
-    def fake_upload(*, file: str, config: dict[str, str] | None = None) -> SimpleNamespace:
-        local_paths.append(file)
-        assert Path(file).exists()
-        return SimpleNamespace(name=FAKE_FILE_NAME, uri=FAKE_FILE_URI)
-
-    def fake_delete(*, name: str, config: object = None) -> None:
-        deleted.append(name)
 
     def fake_interaction(**_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(output_text=SYNTHETIC_VOICE_TRANSCRIPT)
@@ -155,8 +138,6 @@ def test_live_audio_http_cleanup_on_success_and_failure(
             model="gemini-3.7-flash",
             transcription_model="gemini-3.5-transcribe",
             generate_content=fake_generate,
-            files_upload=fake_upload,
-            files_delete=fake_delete,
             create_interaction=fake_interaction,
         )
     )
@@ -168,12 +149,6 @@ def test_live_audio_http_cleanup_on_success_and_failure(
     assert ok.json()["source_type"] == "voice"
     assert ok.json()["transcript"] == SYNTHETIC_VOICE_TRANSCRIPT
     assert "secret-should-not-leak" not in ok.text
-    assert deleted == [FAKE_FILE_NAME]
-    assert local_paths
-    assert all(not Path(path).exists() for path in local_paths)
-
-    deleted.clear()
-    local_paths.clear()
 
     def boom(**_kwargs: object) -> SimpleNamespace:
         raise TimeoutError("generativelanguage.googleapis.com timed out")
@@ -182,9 +157,7 @@ def test_live_audio_http_cleanup_on_success_and_failure(
         GeminiFraudClient(
             model="gemini-3.7-flash",
             transcription_model="gemini-3.5-transcribe",
-            generate_content=fake_generate,
-            files_upload=fake_upload,
-            files_delete=fake_delete,
+            generate_content=boom,
             create_interaction=boom,
         )
     )
@@ -194,7 +167,5 @@ def test_live_audio_http_cleanup_on_success_and_failure(
     )
     assert failed.status_code == 502
     assert failed.json() == {"error": "provider_error"}
-    assert deleted == [FAKE_FILE_NAME]
-    assert local_paths
-    assert all(not Path(path).exists() for path in local_paths)
     assert "Traceback" not in failed.text
+    assert "secret-should-not-leak" not in failed.text

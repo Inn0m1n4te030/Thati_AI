@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     sqlite_path: Path = Field(default=Path("data/thati.db"), alias="SQLITE_PATH")
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-3.7-flash", alias="GEMINI_MODEL")
-    gemini_timeout_ms: int = Field(default=20000, alias="GEMINI_TIMEOUT_MS")
+    gemini_timeout_ms: int = Field(default=60000, alias="GEMINI_TIMEOUT_MS")
     transcription_model: str = Field(
         default="gemini-3.5-transcribe",
         alias="TRANSCRIPTION_MODEL",

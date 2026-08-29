@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -62,9 +63,11 @@ TRANSCRIPTION_LANGUAGE_CODES = ["my-MM", "en-US"]
 TRANSCRIPTION_VOCABULARY = [
     "KBZPay",
     "KBZ Pay",
+    "AYA",
     "Wave Money",
     "OTP",
     "PIN",
+    "CVV",
     "account",
     "transfer",
     "အကောင့်",
@@ -72,8 +75,19 @@ TRANSCRIPTION_VOCABULARY = [
 ]
 
 
+def audio_inline_input(data: bytes, mime_type: str) -> list[dict[str, str]]:
+    """Inline audio for Gemini 3.5 Transcribe (Interactions API)."""
+    return [
+        {
+            "type": "audio",
+            "mime_type": provider_audio_mime(mime_type),
+            "data": base64.b64encode(data).decode("ascii"),
+        }
+    ]
+
+
 def audio_interaction_input(file_uri: str, mime_type: str | None = None) -> list[dict[str, str]]:
-    """Gemini 3.5 Transcribe uses the Interactions API, not generate_content."""
+    """Files-API URI form. Prefer audio_inline_input for live audio."""
     item = {"type": "audio", "uri": file_uri}
     if mime_type:
         item["mime_type"] = provider_audio_mime(mime_type)
@@ -81,9 +95,9 @@ def audio_interaction_input(file_uri: str, mime_type: str | None = None) -> list
 
 
 TRANSCRIBE_ONLY_PROMPT = (
-    "Transcribe all spoken words exactly as heard. "
-    "Preserve Myanmar and English. Output only the transcript. "
-    "Do not analyze, summarize, or add commentary."
+    "ဤအသံသည် မြန်မာဘာသာ (Burmese) ဖြစ်နိုင်ပြီး အင်္ဂလိပ် စကားလုံးများ ရောနေနိုင်သည်။ "
+    "ကြားသည့်အတိုင်း စာသားမှတ်တမ်းသာ ရေးပါ။ မြန်မာစာကို မြန်မာစာဖြင့် ထားပါ။ "
+    "ဘာသာပြန်ခြင်း၊ အကျဉ်းချုပ်ခြင်း သို့မဟုတ် စစ်ဆေးခြင်း မလုပ်ပါနှင့်။"
 )
 
 
@@ -279,19 +293,12 @@ class GeminiFraudClient:
                     logger.exception("Failed to delete Gemini file %s", getattr(uploaded, "name", "?"))
 
     def transcribe_audio(self, audio_path: Path, mime_type: str) -> str:
-        if self._files_upload is None or self._files_delete is None:
-            raise ProviderUnavailableError()
-        uploaded = None
+        data = Path(audio_path).read_bytes()
+        if not data:
+            raise ProviderError("empty_transcript")
         provider_mime = provider_audio_mime(mime_type)
         try:
-            uploaded = self._files_upload(
-                file=str(audio_path),
-                config={"mime_type": provider_mime},
-            )
-            uri = getattr(uploaded, "uri", None)
-            if not uri:
-                raise ProviderError("provider_error")
-            return self._transcribe_uploaded(str(uri), provider_mime)
+            return self._transcribe_bytes(data, provider_mime)
         except ProviderError:
             raise
         except ProviderUnavailableError:
@@ -299,19 +306,13 @@ class GeminiFraudClient:
         except Exception as exc:
             logger.exception("Live transcription failed")
             raise ProviderError("provider_error") from exc
-        finally:
-            if uploaded is not None and self._files_delete is not None:
-                try:
-                    self._files_delete(name=uploaded.name)
-                except Exception:
-                    logger.exception("Failed to delete Gemini file %s", getattr(uploaded, "name", "?"))
 
-    def _transcribe_uploaded(self, uri: str, mime_type: str) -> str:
+    def _transcribe_bytes(self, data: bytes, mime_type: str) -> str:
         if self._create_interaction is not None:
             try:
                 interaction = self._create_interaction(
                     model=self.transcription_model,
-                    input=audio_interaction_input(uri, mime_type),
+                    input=audio_inline_input(data, mime_type),
                     generation_config=live_transcription_config(),
                 )
                 return _parse_transcript(interaction)
@@ -319,13 +320,30 @@ class GeminiFraudClient:
                 logger.warning("Interactions transcript empty; trying understanding model")
             except Exception:
                 logger.exception("Interactions transcription failed; trying understanding model")
-        return self._transcribe_with_understanding_model(uri, mime_type)
+        return self._transcribe_with_understanding_model(data, mime_type)
 
-    def _transcribe_with_understanding_model(self, uri: str, mime_type: str) -> str:
+    def _transcribe_with_understanding_model(self, data: bytes, mime_type: str) -> str:
+        if self._sdk is not None:
+            from google.genai import types
+
+            response = self._sdk.models.generate_content(
+                model=self.model,
+                contents=[
+                    types.Part.from_bytes(data=data, mime_type=mime_type),
+                    TRANSCRIBE_ONLY_PROMPT,
+                ],
+                config={"temperature": 0.1},
+            )
+            return _parse_transcript(response)
         response = self._generate_content(
             model=self.model,
             contents=[
-                {"file_data": {"file_uri": uri, "mime_type": mime_type}},
+                {
+                    "inline_data": {
+                        "mime_type": mime_type,
+                        "data": base64.b64encode(data).decode("ascii"),
+                    }
+                },
                 TRANSCRIBE_ONLY_PROMPT,
             ],
             config={"temperature": 0.1},
@@ -351,13 +369,14 @@ def build_live_client(
             api_key=settings.gemini_api_key,
             http_options=types.HttpOptions(timeout=settings.gemini_timeout_ms),
         )
+        create_interaction = getattr(getattr(sdk, "interactions", None), "create", None)
         return GeminiFraudClient(
             model=settings.gemini_model,
             transcription_model=settings.transcription_model,
             generate_content=sdk.models.generate_content,
             files_upload=sdk.files.upload,
             files_delete=sdk.files.delete,
-            create_interaction=sdk.interactions.create,
+            create_interaction=create_interaction,
             sdk=sdk,
         )
     return GeminiFraudClient(
