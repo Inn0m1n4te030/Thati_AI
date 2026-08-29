@@ -1,9 +1,9 @@
 services:
-  thati:
+  app:
     build: .
     image: thati-ai:latest
-    ports:
-      - "80:8000"
+    expose:
+      - "8000"
     environment:
       APP_MODE: ${APP_MODE:-mock}
       SQLITE_PATH: /data/thati.db
@@ -20,5 +20,20 @@ services:
     restart: unless-stopped
     init: true
 
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
 volumes:
   thati-data:
+  caddy-data:
+  caddy-config:
