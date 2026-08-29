@@ -12,6 +12,7 @@ def test_public_page_has_spec_landmarks(client: TestClient) -> None:
     assert "သံသယရှိသော စာကို ကူးထည့်ပါ" in html
     assert 'id="analyze"' in html
     assert 'id="disclaimer"' in html
+    assert "ဤရလဒ်သည် စာသားပုံစံ စစ်ဆေးချက်သာ ဖြစ်သည်။" not in html
     assert 'href="/admin"' not in html
     assert "/admin" not in html
     assert 'id="blacklist-form"' in html
